@@ -12,7 +12,6 @@ const client = new RekognitionClient({
 
 export async function compareFace(req: Request, res: Response) {
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-    console.log(files);
     const input = {
         SourceImage: {
           Bytes: fs.readFileSync(files.source[0].path),

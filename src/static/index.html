@@ -2,14 +2,22 @@
 <html>
     <head>
         <title>Face Search AI - by Irwan Setiawan</title>
+        <style>
+            .image-container img {
+                max-width: 300px;
+                max-height: 300px;
+            }
+        </style>
     </head>
     <body>
         <div>
             <form method="POST" action="/submit">
                 <h2>Select source image</h2>
                 <input type="file" name="source" id="source">
+                <div class="image-container"><img id="sourceImg"></div>
                 <h2>Select target image</h2>
                 <input type="file" name="target" id="target">
+                <div class="image-container"><img id="targetImg"></div>
                 <div style="margin-top: 20px">
                     <input type="submit" value="Compare Faces" id="submit">
                 </div>

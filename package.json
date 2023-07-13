@@ -2,9 +2,12 @@
   "name": "face-search-ai",
   "version": "1.0.0",
   "description": "",
-  "main": "src/index.ts",
+  "main": "src/server.ts",
   "scripts": {
-    "build": "tsc"
+    "clean": "rimraf dist/",
+    "copyfiles": "copyfiles -u 1 src/**/*.html dist/",
+    "build": "tsc && npm run copyfiles",
+    "server": "node dist/server.js"
   },
   "repository": {
     "type": "git",
@@ -18,10 +21,14 @@
   "homepage": "https://github.com/irwansetiawan/face-search-ai#readme",
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.369.0",
-    "@types/node": "^20.4.2",
-    "dotenv": "^16.3.1"
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
   },
   "devDependencies": {
+    "@types/express": "^4.17.17",
+    "@types/node": "^20.4.2",
+    "copyfiles": "^2.4.1",
+    "rimraf": "^5.0.1",
     "ts-node": "^10.9.1",
     "typescript": "^5.1.6"
   }

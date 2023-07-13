@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Face Search AI - by Irwan Setiawan</title>
+    </head>
+    <body>
+        <div>
+            <form>
+                <h1>Select source image</h1>
+                <input type="file" name="source" id="source">
+                <h2>Select target image</h2>
+                <input type="file" name="target" id="destination">
+                <input type="submit" value="Compare Faces" id="submit">
+            </form>
+        </div>
+
+        <script>
+            const sourceInput = document.getElementById('source');
+            sourceInput.addEventListener('change', (event) => {
+                const selectedFile = sourceInput.files[0];
+                if (selectedFile) {
+                    console.log(selectedFile);
+                }
+            })
+        </script>
+    </body>
+</html>

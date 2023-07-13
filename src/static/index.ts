@@ -8,6 +8,9 @@ sourceInput?.addEventListener('change', (event) => {
     const sourceFile = sourceInput?.files?.[0];
     if (sourceFile) {
         sourceImg.src = URL.createObjectURL(sourceFile);
+        
+        sourceImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
+        targetImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
     }
 });
 
@@ -21,6 +24,9 @@ targetInput?.addEventListener('change', (event) => {
     const targetFile = targetInput?.files?.[0];
     if (targetFile) {
         targetImg.src = URL.createObjectURL(targetFile);
+
+        sourceImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
+        targetImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
     }
 });
 
@@ -38,9 +44,68 @@ form.addEventListener('submit', (event) => {
         .then(async (res) => {
             const responseJson = JSON.parse(await res.text());
             responseDiv.innerHTML = JSON.stringify(responseJson, null, 4);
+
+            const sourceImageFace = responseJson.SourceImageFace;
+            const faceMatches = responseJson.FaceMatches;
+            const unmatchedFaces = responseJson.UnmatchedFaces;
+
+            // create a canvas on top of the source image
+            const sourceCanvas = document.createElement('canvas') as HTMLCanvasElement;
+            locateElementOnTopOf(sourceImg, sourceCanvas);
+            canvasRect(sourceCanvas, sourceImageFace.BoundingBox, '#FF0000');
+
+            // create a canvas on top of the target image
+            const targetCanvas = document.createElement('canvas') as HTMLCanvasElement;
+            locateElementOnTopOf(targetImg, targetCanvas);
+            for (const faceMatch of faceMatches) {
+                canvasRect(targetCanvas, faceMatch.Face.BoundingBox, '#FF0000');
+                canvasRectLabel(targetCanvas, faceMatch.Similarity.toFixed(1)+'% similarity', faceMatch.Face.BoundingBox)
+            }
         })
         .catch((error) => {
             responseDiv.innerHTML = error;
         });
     event.preventDefault();
 });
+
+function locateElementOnTopOf(existingElement: HTMLImageElement, newElement: HTMLCanvasElement) {
+    newElement.width = existingElement.width;
+    newElement.height = existingElement.height;
+    newElement.style.position = 'absolute';
+    newElement.style.top = existingElement.offsetTop+'px';
+    newElement.style.left = existingElement.offsetLeft+'px';
+    existingElement.after(newElement);
+}
+
+type RelativeBox = {
+    Top: number,
+    Left: number,
+    Width: number,
+    Height: number
+}
+
+function canvasRect(canvas: HTMLCanvasElement, boundingBox: RelativeBox, strokeStyle?: string) {
+    const context = canvas.getContext('2d');
+    if (context) {
+        context.strokeStyle = strokeStyle || '#FF0000';
+        context.strokeRect(
+            boundingBox.Left * canvas.width,
+            boundingBox.Top * canvas.height,
+            boundingBox.Width * canvas.width,
+            boundingBox.Height * canvas.height,
+        );
+    }
+}
+
+function canvasRectLabel(canvas: HTMLCanvasElement, text: string, rectBoundingBox: RelativeBox) {
+    const context = canvas.getContext('2d');
+    if (context) {
+        context.fillStyle = '#FF0000';
+        context.font = '12px Arial';
+        context.fillText(
+            text,
+            rectBoundingBox.Left * canvas.width,
+            (rectBoundingBox.Top * canvas.height) - 13,
+        );
+    }
+}

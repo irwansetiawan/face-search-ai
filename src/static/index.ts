@@ -8,7 +8,7 @@ sourceInput?.addEventListener('change', (event) => {
     const sourceFile = sourceInput?.files?.[0];
     if (sourceFile) {
         sourceImg.src = URL.createObjectURL(sourceFile);
-        
+
         sourceImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
         targetImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
     }
@@ -88,6 +88,7 @@ function canvasRect(canvas: HTMLCanvasElement, boundingBox: RelativeBox, strokeS
     const context = canvas.getContext('2d');
     if (context) {
         context.strokeStyle = strokeStyle || '#FF0000';
+        context.lineWidth = 2;
         context.strokeRect(
             boundingBox.Left * canvas.width,
             boundingBox.Top * canvas.height,
@@ -101,11 +102,14 @@ function canvasRectLabel(canvas: HTMLCanvasElement, text: string, rectBoundingBo
     const context = canvas.getContext('2d');
     if (context) {
         context.fillStyle = '#FF0000';
-        context.font = '12px Arial';
+        context.font = 'bold 19px Arial';
+        context.shadowColor="black";
+        context.shadowBlur=7;
+        context.lineWidth = 2;
         context.fillText(
             text,
             rectBoundingBox.Left * canvas.width,
-            (rectBoundingBox.Top * canvas.height) - 13,
+            (rectBoundingBox.Top * canvas.height) - 15,
         );
     }
 }

@@ -14,3 +14,16 @@ targetInput?.addEventListener('change', (event) => {
         console.log(targetFile);
     }
 });
+
+const form = document.querySelector('form') as HTMLFormElement;
+form.addEventListener('submit', (event) => {
+    const form = event.currentTarget as HTMLFormElement;
+    const url = new URL(form.action);
+    const formData = new FormData(form);
+    const fetchOptions = {
+        method: form.method,
+        body: formData,
+    };
+    fetch(url, fetchOptions);
+    event.preventDefault();
+});

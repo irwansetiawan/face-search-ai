@@ -16,6 +16,9 @@
     "url": "https://github.com/irwansetiawan/face-search-ai/issues"
   },
   "homepage": "https://github.com/irwansetiawan/face-search-ai#readme",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.32.0"
+  },
   "devDependencies": {
     "typescript": "^5.1.6"
   }

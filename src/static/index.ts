@@ -23,7 +23,7 @@ sourceImg.addEventListener('load', (event) => {
     const thisImg = event.currentTarget as HTMLImageElement;
     console.log('Image size: ', thisImg.clientWidth, thisImg.clientHeight)
 });
-sourceInput?.addEventListener('change', (event) => {
+sourceInput.addEventListener('change', (event) => {
     const sourceFile = sourceInput?.files?.[0];
     if (sourceFile) {
         sourceImg.src = URL.createObjectURL(sourceFile);
@@ -34,15 +34,26 @@ sourceInput?.addEventListener('change', (event) => {
 });
 
 const targetImg = document.getElementById('targetImg') as HTMLImageElement;
-const targetInput = document.getElementById('targetSingle') as HTMLInputElement;
+const targetSingleInput = document.getElementById('targetSingle') as HTMLInputElement;
 targetImg.addEventListener('load', (event) => {
     const thisImg = event.currentTarget as HTMLImageElement;
     console.log('Image size: ', thisImg.clientWidth, thisImg.clientHeight)
 });
-targetInput?.addEventListener('change', (event) => {
-    const targetFile = targetInput?.files?.[0];
+targetSingleInput.addEventListener('change', (event) => {
+    const targetFile = targetSingleInput.files?.[0];
     if (targetFile) {
         targetImg.src = URL.createObjectURL(targetFile);
+
+        sourceImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
+        targetImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
+    }
+});
+
+const targetDirectoryInput = document.getElementById('targetDirectory') as HTMLInputElement;
+targetDirectoryInput.addEventListener('change', (event) => {
+    const targetFiles = targetDirectoryInput.files;
+    if (targetFiles) {
+        console.log(targetFiles);
 
         sourceImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
         targetImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases

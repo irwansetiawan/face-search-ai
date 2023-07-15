@@ -22,7 +22,14 @@
                     </div>
                     <div class="col">
                         <h2>Select target image</h2>
-                        <input type="file" name="target" id="target" class="form-control mb-3">
+                        <div>
+                            <input type="radio" name="targetType" value="single" id="targetTypeSingle" checked>
+                            <label for="targetTypeSingle">Single image</label>
+                            <input type="radio" name="targetType" value="directory" id="targetTypeDirectory">
+                            <label for="targetTypeDirectory">Multiple images in a directory</label>
+                        </div>
+                        <input type="file" name="target" id="targetSingle" class="form-control mb-3">
+                        <input type="file" name="target" id="targetDirectory" class="form-control mb-3" webkitdirectory multiple>
                         <div class="image-container position-relative text-center"><img id="targetImg"></div>
                     </div>
                 </div>

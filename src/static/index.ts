@@ -1,3 +1,22 @@
+const radioTargetSingle = document.getElementById('targetTypeSingle') as HTMLInputElement;
+const radioTargetDirectory = document.getElementById('targetTypeDirectory') as HTMLInputElement;
+const targetSingle = document.getElementById('targetSingle') as HTMLInputElement;
+const targetDirectory = document.getElementById('targetDirectory') as HTMLInputElement;
+
+radioTargetSingle.addEventListener('change', targetChanged);
+radioTargetDirectory.addEventListener('change', targetChanged);
+
+function targetChanged(event?: Event) {
+    targetSingle.style.display = 'none';
+    targetDirectory.style.display = 'none';
+    if (radioTargetSingle.checked) {
+        targetSingle.style.display = 'block';
+    } else if (radioTargetDirectory.checked) {
+        targetDirectory.style.display = 'block';
+    }
+}
+targetChanged();
+
 const sourceImg = document.getElementById('sourceImg') as HTMLImageElement;
 const sourceInput = document.getElementById('source') as HTMLInputElement;
 sourceImg.addEventListener('load', (event) => {
@@ -15,7 +34,7 @@ sourceInput?.addEventListener('change', (event) => {
 });
 
 const targetImg = document.getElementById('targetImg') as HTMLImageElement;
-const targetInput = document.getElementById('target') as HTMLInputElement;
+const targetInput = document.getElementById('targetSingle') as HTMLInputElement;
 targetImg.addEventListener('load', (event) => {
     const thisImg = event.currentTarget as HTMLImageElement;
     console.log('Image size: ', thisImg.clientWidth, thisImg.clientHeight)

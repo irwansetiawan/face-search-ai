@@ -19,33 +19,21 @@ targetChanged();
 
 const sourceImg = document.getElementById('sourceImg') as HTMLImageElement;
 const sourceInput = document.getElementById('source') as HTMLInputElement;
-sourceImg.addEventListener('load', (event) => {
-    const thisImg = event.currentTarget as HTMLImageElement;
-    console.log('Image size: ', thisImg.clientWidth, thisImg.clientHeight)
-});
 sourceInput.addEventListener('change', (event) => {
     const sourceFile = sourceInput?.files?.[0];
     if (sourceFile) {
         sourceImg.src = URL.createObjectURL(sourceFile);
-
-        sourceImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
-        targetImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
+        cleanCanvases();
     }
 });
 
 const targetImg = document.getElementById('targetImg') as HTMLImageElement;
 const targetSingleInput = document.getElementById('targetSingle') as HTMLInputElement;
-targetImg.addEventListener('load', (event) => {
-    const thisImg = event.currentTarget as HTMLImageElement;
-    console.log('Image size: ', thisImg.clientWidth, thisImg.clientHeight)
-});
 targetSingleInput.addEventListener('change', (event) => {
     const targetFile = targetSingleInput.files?.[0];
     if (targetFile) {
         targetImg.src = URL.createObjectURL(targetFile);
-
-        sourceImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
-        targetImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
+        cleanCanvases();
     }
 });
 
@@ -53,10 +41,8 @@ const targetDirectoryInput = document.getElementById('targetDirectory') as HTMLI
 targetDirectoryInput.addEventListener('change', (event) => {
     const targetFiles = targetDirectoryInput.files;
     if (targetFiles) {
-        console.log(targetFiles);
-
-        sourceImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
-        targetImg.nextElementSibling?.remove(); // remove all next siblings i.e. canvases
+        targetImg.src = '';
+        cleanCanvases();
     }
 });
 
@@ -69,8 +55,7 @@ form.addEventListener('submit', (event) => {
         alert('Please select source image'); return;
     }
 
-    const isDirectory = (form.elements.namedItem('targetType') as RadioNodeList).value == 'directory';
-    const files = (form.elements.namedItem(isDirectory?'targetDirectory':'targetSingle') as HTMLInputElement).files!;
+    const files = (form.elements.namedItem(isDirectory()?'targetDirectory':'targetSingle') as HTMLInputElement).files!;
     const targetFiles = Array.from(files).filter(file => file.name.match(/.*(.[jpe?g|png]$)/gi));
     if (targetFiles.length == 0) {
         alert('Please select target image'); return;
@@ -84,6 +69,13 @@ form.addEventListener('submit', (event) => {
     }
 });
 
+function isDirectory() {
+    return (form.elements.namedItem('targetType') as RadioNodeList).value == 'directory';
+}
+function isSingle() {
+    return !isDirectory();
+}
+
 function getFormData(form: HTMLFormElement, sourceFile: File, targetFile: File): FormData {
     const formData = new FormData();
     formData.append('source', sourceFile);
@@ -92,37 +84,50 @@ function getFormData(form: HTMLFormElement, sourceFile: File, targetFile: File):
 }
 
 function sendRequest(form: HTMLFormElement, sourceFile: File, targetFile: File) {
-    const responseDiv = document.getElementById('response') as HTMLDivElement;
     const url = new URL(form.action);
     const fetchOptions: RequestInit = {
         method: form.method,
         body: getFormData(form, sourceFile, targetFile),
     };
     fetch(url, fetchOptions)
-        .then(async (res) => {
-            const responseJson = JSON.parse(await res.text());
-            responseDiv.innerHTML = JSON.stringify(responseJson, null, 4);
-
-            const sourceImageFace = responseJson.SourceImageFace;
-            const faceMatches = responseJson.FaceMatches;
-            const unmatchedFaces = responseJson.UnmatchedFaces;
-
-            // create a canvas on top of the source image
-            const sourceCanvas = document.createElement('canvas') as HTMLCanvasElement;
-            locateElementOnTopOf(sourceImg, sourceCanvas);
-            canvasRect(sourceCanvas, sourceImageFace.BoundingBox, '#FF0000');
-
-            // create a canvas on top of the target image
-            const targetCanvas = document.createElement('canvas') as HTMLCanvasElement;
-            locateElementOnTopOf(targetImg, targetCanvas);
-            for (const faceMatch of faceMatches) {
-                canvasRect(targetCanvas, faceMatch.Face.BoundingBox, '#FF0000');
-                canvasRectLabel(targetCanvas, faceMatch.Similarity.toFixed(1)+'% similarity', faceMatch.Face.BoundingBox)
-            }
-        })
+        .then(handleResponse)
         .catch((error) => {
+            const responseDiv = document.getElementById('response') as HTMLDivElement;
             responseDiv.innerHTML = error;
         });
+}
+
+async function handleResponse(res: Response) {
+    const responseDiv = document.getElementById('response') as HTMLDivElement;
+    const responseJson = JSON.parse(await res.text());
+    responseDiv.innerHTML = JSON.stringify(responseJson, null, 4);
+
+    const sourceImageFace = responseJson.SourceImageFace;
+    const faceMatches = responseJson.FaceMatches;
+    const unmatchedFaces = responseJson.UnmatchedFaces;
+
+    cleanCanvases();
+    // create a canvas on top of the source image
+    const sourceCanvas = document.createElement('canvas') as HTMLCanvasElement;
+    sourceCanvas.id = 'sourceCanvas';
+    locateElementOnTopOf(sourceImg, sourceCanvas);
+    canvasRect(sourceCanvas, sourceImageFace.BoundingBox, '#FF0000');
+
+    if (isSingle()) {
+        // create a canvas on top of the target image
+        const targetCanvas = document.createElement('canvas') as HTMLCanvasElement;
+        targetCanvas.id = 'targetCanvas';
+        locateElementOnTopOf(targetImg, targetCanvas);
+        for (const faceMatch of faceMatches) {
+            canvasRect(targetCanvas, faceMatch.Face.BoundingBox, '#FF0000');
+            canvasRectLabel(targetCanvas, faceMatch.Similarity.toFixed(1)+'% similarity', faceMatch.Face.BoundingBox)
+        }
+    }
+}
+
+function cleanCanvases() {
+    document.getElementById('sourceCanvas')?.remove();
+    document.getElementById('targetCanvas')?.remove();
 }
 
 function locateElementOnTopOf(existingElement: HTMLImageElement, newElement: HTMLCanvasElement) {

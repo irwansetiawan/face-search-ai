@@ -1,8 +1,12 @@
 import 'dotenv/config';
-import * as express from 'express';
-import * as path from 'path';
-import { compareFace } from './compare-face';
-import * as multer from 'multer';
+import express from 'express';
+import path from 'path';
+import { compareFace } from './compare-face.js';
+import multer from 'multer';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const port = 3000;

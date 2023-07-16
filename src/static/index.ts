@@ -1,3 +1,5 @@
+import * as async from 'async';
+
 const radioTargetSingle = document.getElementById('targetTypeSingle') as HTMLInputElement;
 const radioTargetDirectory = document.getElementById('targetTypeDirectory') as HTMLInputElement;
 const targetSingle = document.getElementById('targetSingle') as HTMLInputElement;
@@ -15,7 +17,6 @@ function targetChanged(event?: Event) {
         targetDirectory.style.display = 'block';
     }
 }
-targetChanged();
 
 const sourceImg = document.getElementById('sourceImg') as HTMLImageElement;
 const sourceInput = document.getElementById('source') as HTMLInputElement;
@@ -64,8 +65,14 @@ form.addEventListener('submit', (event) => {
     if (!isDirectory) { // single file
         sendRequest(form, sourceFile, targetFiles[0]);
     } else { // multiple files
-        // TODO: manage asynchronicity
-        targetFiles.forEach(targetFile => sendRequest(form, sourceFile, targetFile));
+        async.eachLimit(targetFiles, 2, (targetFile: File, callback) => {
+            sendRequest(form, sourceFile, targetFile)
+                .then((res) => callback())
+                .catch((err) => callback(err));
+        }, (error) => {
+            if (error) console.error(error);
+            else console.log('Completed');
+        });
     }
 });
 
@@ -76,25 +83,32 @@ function isSingle() {
     return !isDirectory();
 }
 
-function getFormData(form: HTMLFormElement, sourceFile: File, targetFile: File): FormData {
+function getFormData(sourceFile: File, targetFile: File): FormData {
     const formData = new FormData();
     formData.append('source', sourceFile);
     formData.append('target', targetFile);
     return formData;
 }
 
-function sendRequest(form: HTMLFormElement, sourceFile: File, targetFile: File) {
-    const url = new URL(form.action);
-    const fetchOptions: RequestInit = {
-        method: form.method,
-        body: getFormData(form, sourceFile, targetFile),
-    };
-    fetch(url, fetchOptions)
-        .then(handleResponse)
-        .catch((error) => {
-            const responseDiv = document.getElementById('response') as HTMLDivElement;
-            responseDiv.innerHTML = error;
-        });
+function sendRequest(form: HTMLFormElement, sourceFile: File, targetFile: File): Promise<Response> {
+    return new Promise((resolve, reject) => {
+        console.log('Sending request for source file '+sourceFile.name+', and target file '+targetFile.name);
+        const url = new URL(form.action);
+        const fetchOptions: RequestInit = {
+            method: form.method,
+            body: getFormData(sourceFile, targetFile),
+        };
+        fetch(url, fetchOptions)
+            .then((res) => {
+                handleResponse(res);
+                resolve(res);
+            })
+            .catch((error) => {
+                const responseDiv = document.getElementById('response') as HTMLDivElement;
+                responseDiv.innerHTML = error;
+                reject(error);
+            });
+    })
 }
 
 async function handleResponse(res: Response) {

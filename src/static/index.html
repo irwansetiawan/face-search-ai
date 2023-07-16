@@ -29,7 +29,7 @@
                             <label for="targetTypeDirectory">Multiple images in a directory</label>
                         </div>
                         <input type="file" name="target" id="targetSingle" class="form-control mb-3" accept=".jpg, .jpeg, .png">
-                        <input type="file" name="target" id="targetDirectory" class="form-control mb-3" accept=".jpg, .jpeg, .png" webkitdirectory multiple>
+                        <input type="file" name="target" id="targetDirectory" class="form-control mb-3" accept=".jpg, .jpeg, .png" webkitdirectory multiple style="display: none;">
                         <div class="image-container position-relative text-center"><img id="targetImg"></div>
                     </div>
                 </div>
@@ -43,6 +43,6 @@
                 </div>
             </div>
         </form>
-        <script src="index.js"></script>
+        <script src="bundle.js" type="module"></script>
     </body>
 </html>

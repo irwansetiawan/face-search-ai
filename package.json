@@ -3,10 +3,13 @@
   "version": "1.0.0",
   "description": "",
   "main": "src/server.ts",
+  "type": "module",
   "scripts": {
     "clean": "rimraf dist/",
     "copyfiles": "copyfiles -u 1 src/**/*.html dist/",
-    "build": "tsc && npm run copyfiles",
+    "build": "npm run build:node && npm run build:browser",
+    "build:node": "tsc",
+    "build:browser": "webpack && npm run copyfiles",
     "server": "node dist/server.js"
   },
   "repository": {
@@ -21,17 +24,22 @@
   "homepage": "https://github.com/irwansetiawan/face-search-ai#readme",
   "dependencies": {
     "@aws-sdk/client-rekognition": "^3.369.0",
+    "async": "^3.2.4",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "multer": "^1.4.5-lts.1"
   },
   "devDependencies": {
+    "@types/async": "^3.2.20",
     "@types/express": "^4.17.17",
     "@types/multer": "^1.4.7",
     "@types/node": "^20.4.2",
     "copyfiles": "^2.4.1",
     "rimraf": "^5.0.1",
+    "ts-loader": "^9.4.4",
     "ts-node": "^10.9.1",
-    "typescript": "^5.1.6"
+    "typescript": "^5.1.6",
+    "webpack": "^5.88.1",
+    "webpack-cli": "^5.1.4"
   }
 }

@@ -47,9 +47,15 @@ targetDirectoryInput.addEventListener('change', (event) => {
     }
 });
 
+let sendingRequest = false;
 const form = document.querySelector('form') as HTMLFormElement;
 form.addEventListener('submit', (event) => {
     event.preventDefault();
+
+    if (sendingRequest) {
+        alert('Previous request is still in progress, please wait.'); return;
+    }
+
     const form = event.currentTarget as HTMLFormElement;
     const sourceFile = (form.elements.namedItem('source') as HTMLInputElement).files?.[0];
     if (!sourceFile) {
@@ -64,7 +70,9 @@ form.addEventListener('submit', (event) => {
 
     if (!isDirectory) { // single file
         sendRequest(form, sourceFile, targetFiles[0]);
+        sendingRequest = false;
     } else { // multiple files
+        // TODO: Print progress status
         async.eachLimit(targetFiles, 2, (targetFile: File, callback) => {
             sendRequest(form, sourceFile, targetFile)
                 .then((res) => callback())
@@ -72,6 +80,7 @@ form.addEventListener('submit', (event) => {
         }, (error) => {
             if (error) console.error(error);
             else console.log('Completed');
+            sendingRequest = false;
         });
     }
 });
@@ -91,6 +100,7 @@ function getFormData(sourceFile: File, targetFile: File): FormData {
 }
 
 function sendRequest(form: HTMLFormElement, sourceFile: File, targetFile: File): Promise<Response> {
+    sendingRequest = true;
     return new Promise((resolve, reject) => {
         console.log('Sending request for source file '+sourceFile.name+', and target file '+targetFile.name);
         const url = new URL(form.action);

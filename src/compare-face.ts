@@ -12,18 +12,24 @@ const client = new RekognitionClient({
 
 export async function compareFace(req: Request, res: Response) {
     const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    const sourceFilePath = files.source[0].path;
+    const targetFilePath = files.target[0].path
     const input = {
         SourceImage: {
-          Bytes: fs.readFileSync(files.source[0].path),
+          Bytes: fs.readFileSync(sourceFilePath),
         },
         TargetImage: {
-          Bytes: fs.readFileSync(files.target[0].path),
+          Bytes: fs.readFileSync(targetFilePath),
         },
         SimilarityThreshold: 75,
         QualityFilter: "NONE",
     };
     const command = new CompareFacesCommand(input);
     let response;
+    try {
+        fs.unlink(sourceFilePath, ()=>{});
+        fs.unlink(targetFilePath, ()=>{});
+    } catch(e) {}
     try {
         response = await client.send(command);
         res.status(200).json(response);

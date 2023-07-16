@@ -62,14 +62,42 @@ targetDirectoryInput.addEventListener('change', (event) => {
 
 const form = document.querySelector('form') as HTMLFormElement;
 form.addEventListener('submit', (event) => {
+    event.preventDefault();
     const form = event.currentTarget as HTMLFormElement;
+    const sourceFile = (form.elements.namedItem('source') as HTMLInputElement).files?.[0];
+    if (!sourceFile) {
+        alert('Please select source image'); return;
+    }
+
+    const isDirectory = (form.elements.namedItem('targetType') as RadioNodeList).value == 'directory';
+    const files = (form.elements.namedItem(isDirectory?'targetDirectory':'targetSingle') as HTMLInputElement).files!;
+    const targetFiles = Array.from(files).filter(file => file.name.match(/.*(.[jpe?g|png]$)/gi));
+    if (targetFiles.length == 0) {
+        alert('Please select target image'); return;
+    }
+
+    if (!isDirectory) { // single file
+        sendRequest(form, sourceFile, targetFiles[0]);
+    } else { // multiple files
+        // TODO: manage asynchronicity
+        targetFiles.forEach(targetFile => sendRequest(form, sourceFile, targetFile));
+    }
+});
+
+function getFormData(form: HTMLFormElement, sourceFile: File, targetFile: File): FormData {
+    const formData = new FormData();
+    formData.append('source', sourceFile);
+    formData.append('target', targetFile);
+    return formData;
+}
+
+function sendRequest(form: HTMLFormElement, sourceFile: File, targetFile: File) {
+    const responseDiv = document.getElementById('response') as HTMLDivElement;
     const url = new URL(form.action);
-    const formData = new FormData(form);
     const fetchOptions: RequestInit = {
         method: form.method,
-        body: formData,
+        body: getFormData(form, sourceFile, targetFile),
     };
-    const responseDiv = document.getElementById('response') as HTMLDivElement;
     fetch(url, fetchOptions)
         .then(async (res) => {
             const responseJson = JSON.parse(await res.text());
@@ -95,8 +123,7 @@ form.addEventListener('submit', (event) => {
         .catch((error) => {
             responseDiv.innerHTML = error;
         });
-    event.preventDefault();
-});
+}
 
 function locateElementOnTopOf(existingElement: HTMLImageElement, newElement: HTMLCanvasElement) {
     newElement.width = existingElement.width;

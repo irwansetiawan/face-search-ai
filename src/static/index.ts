@@ -150,20 +150,24 @@ function handleResponse(res: Response, targetFile: File): Promise<void> {
         const unmatchedFaces = responseJson.UnmatchedFaces;
     
         cleanCanvases();
-        // create a canvas on top of the source image
-        const sourceCanvas = document.createElement('canvas') as HTMLCanvasElement;
-        sourceCanvas.id = 'sourceCanvas';
-        locateElementOnTopOf(sourceImg, sourceCanvas);
-        canvasRect(sourceCanvas, sourceImageFace.BoundingBox, '#FF0000');
+        if (sourceImageFace && sourceImageFace.BoundingBox) {
+            // create a canvas on top of the source image
+            const sourceCanvas = document.createElement('canvas') as HTMLCanvasElement;
+            sourceCanvas.id = 'sourceCanvas';
+            locateElementOnTopOf(sourceImg, sourceCanvas);
+            canvasRect(sourceCanvas, sourceImageFace.BoundingBox, '#FF0000');
+        }
     
         if (isSingle()) {
-            // create a canvas on top of the target image
-            const targetCanvas = document.createElement('canvas') as HTMLCanvasElement;
-            targetCanvas.id = 'targetCanvas';
-            locateElementOnTopOf(targetImg, targetCanvas);
-            for (const faceMatch of faceMatches) {
-                canvasRect(targetCanvas, faceMatch.Face.BoundingBox, '#FF0000');
-                canvasRectLabel(targetCanvas, faceMatch.Similarity.toFixed(1)+'% similarity', faceMatch.Face.BoundingBox)
+            if (faceMatches) {
+                // create a canvas on top of the target image
+                const targetCanvas = document.createElement('canvas') as HTMLCanvasElement;
+                targetCanvas.id = 'targetCanvas';
+                locateElementOnTopOf(targetImg, targetCanvas);
+                for (const faceMatch of faceMatches) {
+                    canvasRect(targetCanvas, faceMatch.Face.BoundingBox, '#FF0000');
+                    canvasRectLabel(targetCanvas, faceMatch.Similarity.toFixed(1)+'% similarity', faceMatch.Face.BoundingBox)
+                }
             }
             resolve();
         }

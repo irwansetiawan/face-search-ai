@@ -159,7 +159,7 @@ function handleResponse(res: Response, targetFile: File): Promise<void> {
         }
     
         if (isSingle()) {
-            if (faceMatches) {
+            if (faceMatches && faceMatches.length > 0) {
                 // create a canvas on top of the target image
                 const targetCanvas = document.createElement('canvas') as HTMLCanvasElement;
                 targetCanvas.id = 'targetCanvas';
@@ -172,8 +172,12 @@ function handleResponse(res: Response, targetFile: File): Promise<void> {
             resolve();
         }
         else {
-            console.log(targetFile.name+' matches');
-            filesToBeZipped.push(targetFile);
+            if (faceMatches && faceMatches.length > 0) {
+                console.log(targetFile.name+' matches');
+                filesToBeZipped.push(targetFile);
+            } else {
+                console.log(targetFile.name+' no match')
+            }
             resolve();
         }
     })

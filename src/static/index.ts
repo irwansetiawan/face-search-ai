@@ -1,4 +1,6 @@
 import * as async from 'async';
+import { saveAs } from 'file-saver';
+import JSZip from 'jszip';
 
 const radioTargetSingle = document.getElementById('targetTypeSingle') as HTMLInputElement;
 const radioTargetDirectory = document.getElementById('targetTypeDirectory') as HTMLInputElement;
@@ -48,6 +50,7 @@ targetDirectoryInput.addEventListener('change', (event) => {
 });
 
 let sendingRequest = false;
+let filesToBeZipped: File[] = [];
 const form = document.querySelector('form') as HTMLFormElement;
 form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -71,8 +74,10 @@ form.addEventListener('submit', (event) => {
     if (!isDirectory) { // single file
         sendRequest(form, sourceFile, targetFiles[0]);
         sendingRequest = false;
-    } else { // multiple files
+    }
+    else { // multiple files
         // TODO: Print progress status
+        filesToBeZipped = [];
         async.eachLimit(targetFiles, 2, (targetFile: File, callback) => {
             sendRequest(form, sourceFile, targetFile)
                 .then((res) => callback())
@@ -81,6 +86,20 @@ form.addEventListener('submit', (event) => {
             if (error) console.error(error);
             else console.log('Completed');
             sendingRequest = false;
+            
+            if (filesToBeZipped.length > 0) {
+                // zip and download
+                const zip = new JSZip();
+                for (const file of filesToBeZipped) {
+                    zip.file(file.name, file);
+                }
+                filesToBeZipped = []; // free up memory
+                zip.generateAsync({type:'blob'})
+                    .then(function(blob) {
+                        const ts = new Date().toISOString()
+                        saveAs(blob, 'download-'+ts+'.zip');
+                    });
+            }
         });
     }
 });
@@ -101,52 +120,59 @@ function getFormData(sourceFile: File, targetFile: File): FormData {
 
 function sendRequest(form: HTMLFormElement, sourceFile: File, targetFile: File): Promise<Response> {
     sendingRequest = true;
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
         console.log('Sending request for source file '+sourceFile.name+', and target file '+targetFile.name);
         const url = new URL(form.action);
         const fetchOptions: RequestInit = {
             method: form.method,
             body: getFormData(sourceFile, targetFile),
         };
-        fetch(url, fetchOptions)
-            .then((res) => {
-                handleResponse(res);
-                resolve(res);
-            })
-            .catch((error) => {
-                const responseDiv = document.getElementById('response') as HTMLDivElement;
-                responseDiv.innerHTML = error;
-                reject(error);
-            });
+        try {
+            const res = await fetch(url, fetchOptions)
+            await handleResponse(res, targetFile);
+            resolve(res);
+        } catch(error: any) {
+            const responseDiv = document.getElementById('response') as HTMLDivElement;
+            responseDiv.innerHTML = error;
+            reject(error);
+        }
     })
 }
 
-async function handleResponse(res: Response) {
-    const responseDiv = document.getElementById('response') as HTMLDivElement;
-    const responseJson = JSON.parse(await res.text());
-    responseDiv.innerHTML = JSON.stringify(responseJson, null, 4);
-
-    const sourceImageFace = responseJson.SourceImageFace;
-    const faceMatches = responseJson.FaceMatches;
-    const unmatchedFaces = responseJson.UnmatchedFaces;
-
-    cleanCanvases();
-    // create a canvas on top of the source image
-    const sourceCanvas = document.createElement('canvas') as HTMLCanvasElement;
-    sourceCanvas.id = 'sourceCanvas';
-    locateElementOnTopOf(sourceImg, sourceCanvas);
-    canvasRect(sourceCanvas, sourceImageFace.BoundingBox, '#FF0000');
-
-    if (isSingle()) {
-        // create a canvas on top of the target image
-        const targetCanvas = document.createElement('canvas') as HTMLCanvasElement;
-        targetCanvas.id = 'targetCanvas';
-        locateElementOnTopOf(targetImg, targetCanvas);
-        for (const faceMatch of faceMatches) {
-            canvasRect(targetCanvas, faceMatch.Face.BoundingBox, '#FF0000');
-            canvasRectLabel(targetCanvas, faceMatch.Similarity.toFixed(1)+'% similarity', faceMatch.Face.BoundingBox)
+function handleResponse(res: Response, targetFile: File): Promise<void> {
+    return new Promise(async (resolve, reject) => {
+        const responseDiv = document.getElementById('response') as HTMLDivElement;
+        const responseJson = JSON.parse(await res.text());
+        responseDiv.innerHTML = JSON.stringify(responseJson, null, 4);
+    
+        const sourceImageFace = responseJson.SourceImageFace;
+        const faceMatches = responseJson.FaceMatches;
+        const unmatchedFaces = responseJson.UnmatchedFaces;
+    
+        cleanCanvases();
+        // create a canvas on top of the source image
+        const sourceCanvas = document.createElement('canvas') as HTMLCanvasElement;
+        sourceCanvas.id = 'sourceCanvas';
+        locateElementOnTopOf(sourceImg, sourceCanvas);
+        canvasRect(sourceCanvas, sourceImageFace.BoundingBox, '#FF0000');
+    
+        if (isSingle()) {
+            // create a canvas on top of the target image
+            const targetCanvas = document.createElement('canvas') as HTMLCanvasElement;
+            targetCanvas.id = 'targetCanvas';
+            locateElementOnTopOf(targetImg, targetCanvas);
+            for (const faceMatch of faceMatches) {
+                canvasRect(targetCanvas, faceMatch.Face.BoundingBox, '#FF0000');
+                canvasRectLabel(targetCanvas, faceMatch.Similarity.toFixed(1)+'% similarity', faceMatch.Face.BoundingBox)
+            }
+            resolve();
         }
-    }
+        else {
+            console.log(targetFile.name+' matches');
+            filesToBeZipped.push(targetFile);
+            resolve();
+        }
+    })
 }
 
 function cleanCanvases() {

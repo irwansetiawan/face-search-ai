@@ -66,9 +66,9 @@ form.addEventListener('submit', (event) => {
     }
 
     const files = (form.elements.namedItem(isDirectory()?'targetDirectory':'targetSingle') as HTMLInputElement).files!;
-    const targetFiles = Array.from(files).filter(file => file.name.match(/.*(.[jpe?g|png]$)/gi));
+    const targetFiles = Array.from(files).filter(file => file.name.match(/.*\.(jpe?g|png)$/i));
     if (targetFiles.length == 0) {
-        alert('Please select target image'); return;
+        alert('Please select target image(s)'); return;
     }
 
     if (!isDirectory) { // single file

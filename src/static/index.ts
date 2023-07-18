@@ -52,7 +52,7 @@ targetDirectoryInput.addEventListener('change', (event) => {
 let sendingRequest = false;
 let filesToBeZipped: File[] = [];
 const form = document.querySelector('form') as HTMLFormElement;
-form.addEventListener('submit', (event) => {
+form.addEventListener('submit', async (event) => {
     event.preventDefault();
 
     if (sendingRequest) {
@@ -72,17 +72,20 @@ form.addEventListener('submit', (event) => {
     }
 
     if (!isDirectory) { // single file
-        sendRequest(form, sourceFile, targetFiles[0]);
+        await sendRequest(form, sourceFile, targetFiles[0]);
         sendingRequest = false;
     }
     else { // multiple files
         // TODO: Print progress status
         filesToBeZipped = [];
-        async.eachLimit(targetFiles, 2, (targetFile: File, callback) => {
-            sendRequest(form, sourceFile, targetFile)
-                .then((res) => callback())
-                .catch((err) => callback(err));
-        }, (error) => {
+        async.eachLimit(targetFiles, 2, async (targetFile: File, callback) => {
+            try {
+                await sendRequest(form, sourceFile, targetFile)
+                callback();
+            } catch(error: any) {
+                callback(error);
+            }
+        }, async (error) => {
             if (error) console.error(error);
             else console.log('Completed');
             sendingRequest = false;
@@ -94,11 +97,9 @@ form.addEventListener('submit', (event) => {
                     zip.file(file.name, file);
                 }
                 filesToBeZipped = []; // free up memory
-                zip.generateAsync({type:'blob'})
-                    .then(function(blob) {
-                        const ts = new Date().toISOString()
-                        saveAs(blob, 'download-'+ts+'.zip');
-                    });
+                const blob = await zip.generateAsync({type:'blob'});
+                const ts = new Date().toISOString()
+                saveAs(blob, 'download-'+ts+'.zip');
             }
         });
     }

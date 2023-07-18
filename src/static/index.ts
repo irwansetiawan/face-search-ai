@@ -51,6 +51,13 @@ targetDirectoryInput.addEventListener('change', (event) => {
 
 let sendingRequest = false;
 let filesToBeZipped: File[] = [];
+const counters = {
+    total: 0,
+    requestsSent: 0,
+    responsesReceived: 0,
+    filesMatched: 0,
+}
+
 const form = document.querySelector('form') as HTMLFormElement;
 form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -76,30 +83,31 @@ form.addEventListener('submit', async (event) => {
         sendingRequest = false;
     }
     else { // multiple files
-        // TODO: Print progress status
+        resetCounters(targetFiles.length);
         filesToBeZipped = [];
-        async.eachLimit(targetFiles, 2, async (targetFile: File, callback) => {
-            try {
-                await sendRequest(form, sourceFile, targetFile)
-                callback();
-            } catch(error: any) {
-                callback(error);
-            }
+        async.eachLimit(targetFiles, 2, (targetFile: File, callback) => {
+            // iterator couldn't be an async function
+            sendRequest(form, sourceFile, targetFile)
+                .then(() => callback())
+                .catch((error) => callback(error));
         }, async (error) => {
-            if (error) console.error(error);
-            else console.log('Completed');
             sendingRequest = false;
-            
-            if (filesToBeZipped.length > 0) {
-                // zip and download
-                const zip = new JSZip();
-                for (const file of filesToBeZipped) {
-                    zip.file(file.name, file);
+            if (error) {
+                console.error(error);
+            }
+            else {
+                console.log('Completed');
+                if (filesToBeZipped.length > 0) {
+                    // zip and download
+                    const zip = new JSZip();
+                    for (const file of filesToBeZipped) {
+                        zip.file(file.name, file);
+                    }
+                    filesToBeZipped = []; // free up memory
+                    const blob = await zip.generateAsync({type:'blob'});
+                    const ts = new Date().toISOString()
+                    saveAs(blob, 'download-'+ts+'.zip');
                 }
-                filesToBeZipped = []; // free up memory
-                const blob = await zip.generateAsync({type:'blob'});
-                const ts = new Date().toISOString()
-                saveAs(blob, 'download-'+ts+'.zip');
             }
         });
     }
@@ -120,6 +128,7 @@ function getFormData(sourceFile: File, targetFile: File): FormData {
 }
 
 function sendRequest(form: HTMLFormElement, sourceFile: File, targetFile: File): Promise<Response> {
+    onRequestSent();
     sendingRequest = true;
     return new Promise(async (resolve, reject) => {
         console.log('Sending request for source file '+sourceFile.name+', and target file '+targetFile.name);
@@ -130,6 +139,7 @@ function sendRequest(form: HTMLFormElement, sourceFile: File, targetFile: File):
         };
         try {
             const res = await fetch(url, fetchOptions)
+            onResponseReceived();
             await handleResponse(res, targetFile);
             resolve(res);
         } catch(error: any) {
@@ -175,6 +185,7 @@ function handleResponse(res: Response, targetFile: File): Promise<void> {
         else {
             if (faceMatches && faceMatches.length > 0) {
                 console.log(targetFile.name+' matches');
+                onFaceMatched();
                 filesToBeZipped.push(targetFile);
             } else {
                 console.log(targetFile.name+' no match')
@@ -233,4 +244,30 @@ function canvasRectLabel(canvas: HTMLCanvasElement, text: string, rectBoundingBo
             (rectBoundingBox.Top * canvas.height) - 15,
         );
     }
+}
+
+function resetCounters(total: number) {
+    counters.total = total;
+    counters.requestsSent = 0;
+    counters.responsesReceived = 0;
+    counters.filesMatched = 0;
+}
+
+function onRequestSent() {
+    counters.requestsSent += 1;
+    displayProgress();
+}
+
+function onResponseReceived() {
+    counters.responsesReceived += 1;
+    displayProgress();
+}
+
+function onFaceMatched() {
+    counters.filesMatched += 1;
+    displayProgress();
+}
+
+function displayProgress() {
+    console.log(counters);
 }

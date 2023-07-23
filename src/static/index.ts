@@ -2,33 +2,41 @@ import * as async from 'async';
 import { saveAs } from 'file-saver';
 import JSZip from 'jszip';
 
+// source image
+const sourceInput = document.getElementById('source') as HTMLInputElement;
+
+// source preview
+const sourceImg = document.getElementById('sourceImg') as HTMLImageElement;
+
+// target selection
 const radioTargetSingle = document.getElementById('targetTypeSingle') as HTMLInputElement;
 const radioTargetDirectory = document.getElementById('targetTypeDirectory') as HTMLInputElement;
-const targetSingle = document.getElementById('targetSingle') as HTMLInputElement;
-const targetDirectory = document.getElementById('targetDirectory') as HTMLInputElement;
+const targetSingleInput = document.getElementById('targetSingle') as HTMLInputElement;
+const targetDirectoryInput = document.getElementById('targetDirectory') as HTMLInputElement;
+
+// target preview
 const progressContainer = document.getElementById('progress-container') as HTMLDivElement;
+const targetImg = document.getElementById('targetImg') as HTMLImageElement;
 
 radioTargetSingle.addEventListener('change', targetChanged);
 radioTargetDirectory.addEventListener('change', targetChanged);
 
 function targetChanged(event?: Event) {
-    targetSingle.style.display = 'none';
-    targetDirectory.style.display = 'none';
-    progressContainer.style.display = 'none';
     targetImg.src = '';
-    targetSingle.value = '';
-    targetDirectory.value = '';
+    targetSingleInput.style.display = 'none';
+    targetSingleInput.value = '';
+    targetDirectoryInput.style.display = 'none';
+    targetDirectoryInput.value = '';
+    progressContainer.style.display = 'none';
     if (radioTargetSingle.checked) {
-        targetSingle.style.display = 'block';
+        targetSingleInput.style.display = 'block';
     } else if (radioTargetDirectory.checked) {
-        targetDirectory.style.display = 'block';
+        targetDirectoryInput.style.display = 'block';
         progressContainer.style.display = 'block';
         resetCounters(0);
     }
 }
 
-const sourceImg = document.getElementById('sourceImg') as HTMLImageElement;
-const sourceInput = document.getElementById('source') as HTMLInputElement;
 sourceInput.addEventListener('change', (event) => {
     const sourceFile = sourceInput?.files?.[0];
     if (sourceFile) {
@@ -37,8 +45,6 @@ sourceInput.addEventListener('change', (event) => {
     }
 });
 
-const targetImg = document.getElementById('targetImg') as HTMLImageElement;
-const targetSingleInput = document.getElementById('targetSingle') as HTMLInputElement;
 targetSingleInput.addEventListener('change', (event) => {
     const targetFile = targetSingleInput.files?.[0];
     if (targetFile) {
@@ -47,7 +53,6 @@ targetSingleInput.addEventListener('change', (event) => {
     }
 });
 
-const targetDirectoryInput = document.getElementById('targetDirectory') as HTMLInputElement;
 targetDirectoryInput.addEventListener('change', (event) => {
     const targetFiles = targetDirectoryInput.files;
     if (targetFiles) {
@@ -73,12 +78,12 @@ form.addEventListener('submit', async (event) => {
     }
 
     const form = event.currentTarget as HTMLFormElement;
-    const sourceFile = (form.elements.namedItem('source') as HTMLInputElement).files?.[0];
+    const sourceFile = sourceInput.files?.[0];
     if (!sourceFile) {
         alert('Please select source image'); return;
     }
 
-    const files = (form.elements.namedItem(isDirectory()?'targetDirectory':'targetSingle') as HTMLInputElement).files!;
+    const files = (isDirectory()?targetDirectoryInput:targetSingleInput).files!;
     const targetFiles = Array.from(files).filter(file => file.name.match(/.*\.(jpe?g|png)$/i));
     if (targetFiles.length == 0) {
         alert('Please select target image(s)'); return;

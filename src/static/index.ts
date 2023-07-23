@@ -6,6 +6,7 @@ const radioTargetSingle = document.getElementById('targetTypeSingle') as HTMLInp
 const radioTargetDirectory = document.getElementById('targetTypeDirectory') as HTMLInputElement;
 const targetSingle = document.getElementById('targetSingle') as HTMLInputElement;
 const targetDirectory = document.getElementById('targetDirectory') as HTMLInputElement;
+const progressContainer = document.getElementById('progress-container') as HTMLDivElement;
 
 radioTargetSingle.addEventListener('change', targetChanged);
 radioTargetDirectory.addEventListener('change', targetChanged);
@@ -13,10 +14,16 @@ radioTargetDirectory.addEventListener('change', targetChanged);
 function targetChanged(event?: Event) {
     targetSingle.style.display = 'none';
     targetDirectory.style.display = 'none';
+    progressContainer.style.display = 'none';
+    targetImg.src = '';
+    targetSingle.value = '';
+    targetDirectory.value = '';
     if (radioTargetSingle.checked) {
         targetSingle.style.display = 'block';
     } else if (radioTargetDirectory.checked) {
         targetDirectory.style.display = 'block';
+        progressContainer.style.display = 'block';
+        resetCounters(0);
     }
 }
 
@@ -36,18 +43,14 @@ targetSingleInput.addEventListener('change', (event) => {
     const targetFile = targetSingleInput.files?.[0];
     if (targetFile) {
         targetImg.src = URL.createObjectURL(targetFile);
-        progressContainer.style.display = 'none';
         cleanCanvases();
     }
 });
 
-const progressContainer = document.getElementById('progress-container') as HTMLDivElement;
 const targetDirectoryInput = document.getElementById('targetDirectory') as HTMLInputElement;
 targetDirectoryInput.addEventListener('change', (event) => {
     const targetFiles = targetDirectoryInput.files;
     if (targetFiles) {
-        targetImg.src = '';
-        progressContainer.style.display = 'block';
         cleanCanvases();
     }
 });
@@ -254,6 +257,7 @@ function resetCounters(total: number) {
     counters.requestsSent = 0;
     counters.responsesReceived = 0;
     counters.filesMatched = 0;
+    displayProgress();
 }
 
 function onRequestSent() {
@@ -273,7 +277,10 @@ function onFaceMatched() {
 
 function displayProgress() {
     console.log(counters);
-    const progressPercent = Math.ceil((counters.responsesReceived/counters.total)*100);
+    const progressPercent = 
+        counters.total > 0 ?
+            Math.ceil((counters.responsesReceived/counters.total)*100) :
+            0;
     (document.getElementById('progress-percent') as HTMLDivElement).style.width = progressPercent+'%';
     (document.getElementById('progress-number') as HTMLDivElement).innerHTML = progressPercent+'%';
 }

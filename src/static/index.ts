@@ -36,15 +36,18 @@ targetSingleInput.addEventListener('change', (event) => {
     const targetFile = targetSingleInput.files?.[0];
     if (targetFile) {
         targetImg.src = URL.createObjectURL(targetFile);
+        progressContainer.style.display = 'none';
         cleanCanvases();
     }
 });
 
+const progressContainer = document.getElementById('progress-container') as HTMLDivElement;
 const targetDirectoryInput = document.getElementById('targetDirectory') as HTMLInputElement;
 targetDirectoryInput.addEventListener('change', (event) => {
     const targetFiles = targetDirectoryInput.files;
     if (targetFiles) {
         targetImg.src = '';
+        progressContainer.style.display = 'block';
         cleanCanvases();
     }
 });
@@ -270,4 +273,7 @@ function onFaceMatched() {
 
 function displayProgress() {
     console.log(counters);
+    const progressPercent = Math.ceil((counters.responsesReceived/counters.total)*100);
+    (document.getElementById('progress-percent') as HTMLDivElement).style.width = progressPercent+'%';
+    (document.getElementById('progress-number') as HTMLDivElement).innerHTML = progressPercent+'%';
 }

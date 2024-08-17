@@ -282,6 +282,13 @@ function displayProgress() {
         counters.total > 0 ?
             Math.ceil((counters.responsesReceived/counters.total)*100) :
             0;
+    const matchedPercent =
+        counters.total > 0 ?
+            Math.ceil((counters.filesMatched/counters.total)*100) :
+            0;
     (document.getElementById('progress-percent') as HTMLDivElement).style.width = progressPercent+'%';
-    (document.getElementById('progress-number') as HTMLDivElement).innerHTML = progressPercent+'%';
+    (document.getElementById('progress-number') as HTMLDivElement).innerHTML = 
+        'Scanned '+counters.responsesReceived+' out of '+counters.total+' ('+progressPercent+'%)';
+    (document.getElementById('progress-matched') as HTMLDivElement).innerHTML = 
+        'Matched '+counters.filesMatched+' out of '+counters.total+' ('+matchedPercent+'%)';
 }

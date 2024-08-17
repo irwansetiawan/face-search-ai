@@ -9,7 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const port = 3000;
+const port = 3100;
 
 // Serve static files
 app.use(express.static(path.join(__dirname, '/static')));

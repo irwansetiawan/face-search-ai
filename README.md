@@ -20,4 +20,4 @@ npm run build
 npm run server
 ```
 
-Then open http://localhost:3000/ in your browser.
+Then open http://localhost:3100/ in your browser.

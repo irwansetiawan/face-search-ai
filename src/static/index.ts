@@ -154,8 +154,6 @@ function sendRequest(form: HTMLFormElement, sourceFile: File, targetFile: File):
             await handleResponse(res, targetFile);
             resolve(res);
         } catch(error: any) {
-            const responseDiv = document.getElementById('response') as HTMLDivElement;
-            responseDiv.innerHTML = error;
             reject(error);
         }
     })
@@ -163,9 +161,7 @@ function sendRequest(form: HTMLFormElement, sourceFile: File, targetFile: File):
 
 function handleResponse(res: Response, targetFile: File): Promise<void> {
     return new Promise(async (resolve, reject) => {
-        const responseDiv = document.getElementById('response') as HTMLDivElement;
         const responseJson = JSON.parse(await res.text());
-        responseDiv.innerHTML = JSON.stringify(responseJson, null, 4);
     
         const sourceImageFace = responseJson.SourceImageFace;
         const faceMatches = responseJson.FaceMatches;

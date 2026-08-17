@@ -62,8 +62,23 @@ export async function createStore(dataDir: string): Promise<Store> {
     let state: FileShape = { pipelineVersion: PIPELINE_VERSION, people: [] };
     try {
         state = JSON.parse(await fs.readFile(file, 'utf8'));
-    } catch {
-        // First run: no file yet. Start from the empty default above.
+    } catch (err) {
+        // ENOENT is the only failure that means "first run, no file yet" —
+        // start from the empty default above. Everything else (permissions,
+        // EISDIR, a truncated/corrupt people.json, a JSON.parse SyntaxError
+        // on malformed content) must NOT be treated as an empty store: the
+        // very next mutation would flush() and atomically rename over the
+        // still-present real file, permanently destroying every saved
+        // person with nothing surfaced anywhere. Fail loudly instead.
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+            const reason = err instanceof Error ? err.message : String(err);
+            throw new Error(
+                `people store at ${file} could not be read (${reason}). ` +
+                'Refusing to start with an empty store, which would overwrite ' +
+                'existing data on the next write. Repair or move the file and retry.'
+            );
+        }
+        // genuine first run: no file yet.
     }
 
     // Serialize mutations so a concurrent read-modify-write (including the

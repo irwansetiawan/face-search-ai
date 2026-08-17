@@ -119,6 +119,35 @@ test('deleting a person also removes its image directory', async () => {
     await assert.rejects(() => fs.access(personDir));
 });
 
+test('a corrupt people.json causes createStore to reject rather than starting empty', async () => {
+    const dir = await tmpDir();
+    await fs.mkdir(path.join(dir, 'people'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'people.json'), '{not valid json');
+
+    await assert.rejects(() => createStore(dir));
+});
+
+test('an existing valid store is still intact on disk after a failed createStore', async () => {
+    const dir = await tmpDir();
+    const store = await createStore(dir);
+    await store.addPerson('Sarah', ref(0.1));
+
+    const goodContents = await fs.readFile(path.join(dir, 'people.json'), 'utf8');
+    assert.match(goodContents, /Sarah/);
+
+    // Corrupt the file out from under the store, as if it had been
+    // truncated by an earlier crash or edited externally.
+    await fs.writeFile(path.join(dir, 'people.json'), '{"people": [ this is not json');
+
+    await assert.rejects(() => createStore(dir));
+
+    // The critical assertion: createStore must not have overwritten the
+    // file with an empty store on its way to rejecting. Whatever is on
+    // disk must still be the corrupt content we wrote, untouched.
+    const afterFailedLoad = await fs.readFile(path.join(dir, 'people.json'), 'utf8');
+    assert.equal(afterFailedLoad, '{"people": [ this is not json');
+});
+
 test('concurrent writes do not lose entries', async () => {
     const dir = await tmpDir();
     const store = await createStore(dir);

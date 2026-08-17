@@ -89,8 +89,26 @@ form.addEventListener('submit', async (event) => {
         alert('Please select target image(s)'); return;
     }
 
-    if (!isDirectory) { // single file
-        await sendRequest(form, sourceFile, targetFiles[0]);
+    // One probe for the whole run - this is the entire point of the split.
+    let probe: number[];
+    try {
+        const probeForm = new FormData();
+        probeForm.append('source', sourceFile);
+        const probeRes = await fetch('/probe', { method: 'POST', body: probeForm });
+        if (probeRes.status === 422) {
+            alert('No face found in the source image. Try a clearer photo.');
+            return;
+        }
+        if (!probeRes.ok) { alert('Could not read the source image.'); return; }
+        const probeJson = await probeRes.json();
+        probe = probeJson.embedding;
+        drawSourceBox(probeJson.face.box);
+    } catch (e) {
+        alert('Could not reach the server.'); return;
+    }
+
+    if (!isDirectory()) { // single file
+        await sendRequest(probe, targetFiles[0]);
         sendingRequest = false;
     }
     else { // multiple files
@@ -98,7 +116,7 @@ form.addEventListener('submit', async (event) => {
         filesToBeZipped = [];
         async.eachLimit(targetFiles, 2, (targetFile: File, callback) => {
             // iterator couldn't be an async function
-            sendRequest(form, sourceFile, targetFile)
+            sendRequest(probe, targetFile)
                 .then(() => callback())
                 .catch((error) => callback(error));
         }, async (error) => {
@@ -131,75 +149,48 @@ function isSingle() {
     return !isDirectory();
 }
 
-function getFormData(sourceFile: File, targetFile: File): FormData {
-    const formData = new FormData();
-    formData.append('source', sourceFile);
-    formData.append('target', targetFile);
-    return formData;
-}
-
-function sendRequest(form: HTMLFormElement, sourceFile: File, targetFile: File): Promise<Response> {
+function sendRequest(probe: number[], targetFile: File): Promise<void> {
     onRequestSent();
     sendingRequest = true;
-    return new Promise(async (resolve, reject) => {
-        console.log('Sending request for source file '+sourceFile.name+', and target file '+targetFile.name);
-        const url = new URL(form.action);
-        const fetchOptions: RequestInit = {
-            method: form.method,
-            body: getFormData(sourceFile, targetFile),
-        };
-        try {
-            const res = await fetch(url, fetchOptions)
-            onResponseReceived();
-            await handleResponse(res, targetFile);
-            resolve(res);
-        } catch(error: any) {
-            reject(error);
-        }
-    })
+    return (async () => {
+        const body = new FormData();
+        body.append('target', targetFile);
+        body.append('probe', JSON.stringify([probe]));
+        const res = await fetch('/search', { method: 'POST', body });
+        onResponseReceived();
+        await handleResponse(res, targetFile);
+    })();
 }
 
-function handleResponse(res: Response, targetFile: File): Promise<void> {
-    return new Promise(async (resolve, reject) => {
-        const responseJson = JSON.parse(await res.text());
-    
-        const sourceImageFace = responseJson.SourceImageFace;
-        const faceMatches = responseJson.FaceMatches;
-        const unmatchedFaces = responseJson.UnmatchedFaces;
-    
-        cleanCanvases();
-        if (sourceImageFace && sourceImageFace.BoundingBox) {
-            // create a canvas on top of the source image
-            const sourceCanvas = document.createElement('canvas') as HTMLCanvasElement;
-            sourceCanvas.id = 'sourceCanvas';
-            locateElementOnTopOf(sourceImg, sourceCanvas);
-            canvasRect(sourceCanvas, sourceImageFace.BoundingBox, '#FF0000');
-        }
-    
-        if (isSingle()) {
-            if (faceMatches && faceMatches.length > 0) {
-                // create a canvas on top of the target image
-                const targetCanvas = document.createElement('canvas') as HTMLCanvasElement;
-                targetCanvas.id = 'targetCanvas';
-                locateElementOnTopOf(targetImg, targetCanvas);
-                for (const faceMatch of faceMatches) {
-                    canvasRect(targetCanvas, faceMatch.Face.BoundingBox, '#FF0000');
-                    canvasRectLabel(targetCanvas, faceMatch.Similarity.toFixed(1)+'% similarity', faceMatch.Face.BoundingBox)
-                }
+async function handleResponse(res: Response, targetFile: File): Promise<void> {
+    const body = await res.json();
+    if (!res.ok) { console.warn(targetFile.name, body.error); return; }
+
+    if (isSingle()) {
+        const targetCanvas = document.createElement('canvas');
+        targetCanvas.id = 'targetCanvas';
+        locateElementOnTopOf(targetImg, targetCanvas);
+        for (const face of body.faces) {
+            canvasRect(targetCanvas, face.box, face.matched ? '#FF0000' : '#888888');
+            if (face.matched) {
+                canvasRectLabel(targetCanvas, face.cosine.toFixed(3) + ' cosine', face.box);
             }
-            resolve();
         }
-        else {
-            if (faceMatches && faceMatches.length > 0) {
-                console.log(targetFile.name+' matches');
-                onFaceMatched();
-                filesToBeZipped.push(targetFile);
-            } else {
-                console.log(targetFile.name+' no match')
-            }
-            resolve();
-        }
-    })
+        return;
+    }
+
+    if (body.matched) {
+        onFaceMatched();
+        filesToBeZipped.push(targetFile);
+    }
+}
+
+function drawSourceBox(box: RelativeBox) {
+    cleanCanvases();
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.id = 'sourceCanvas';
+    locateElementOnTopOf(sourceImg, sourceCanvas);
+    canvasRect(sourceCanvas, box, '#FF0000');
 }
 
 function cleanCanvases() {
@@ -217,10 +208,10 @@ function locateElementOnTopOf(existingElement: HTMLImageElement, newElement: HTM
 }
 
 type RelativeBox = {
-    Top: number,
-    Left: number,
-    Width: number,
-    Height: number
+    top: number,
+    left: number,
+    width: number,
+    height: number
 }
 
 function canvasRect(canvas: HTMLCanvasElement, boundingBox: RelativeBox, strokeStyle?: string) {
@@ -229,10 +220,10 @@ function canvasRect(canvas: HTMLCanvasElement, boundingBox: RelativeBox, strokeS
         context.strokeStyle = strokeStyle || '#FF0000';
         context.lineWidth = 2;
         context.strokeRect(
-            boundingBox.Left * canvas.width,
-            boundingBox.Top * canvas.height,
-            boundingBox.Width * canvas.width,
-            boundingBox.Height * canvas.height,
+            boundingBox.left * canvas.width,
+            boundingBox.top * canvas.height,
+            boundingBox.width * canvas.width,
+            boundingBox.height * canvas.height,
         );
     }
 }
@@ -247,8 +238,8 @@ function canvasRectLabel(canvas: HTMLCanvasElement, text: string, rectBoundingBo
         context.lineWidth = 2;
         context.fillText(
             text,
-            rectBoundingBox.Left * canvas.width,
-            (rectBoundingBox.Top * canvas.height) - 15,
+            rectBoundingBox.left * canvas.width,
+            (rectBoundingBox.top * canvas.height) - 15,
         );
     }
 }

@@ -51,7 +51,10 @@ export function searchHandler(matcher: Matcher, store: Store): RequestHandler {
             // surfaced as bad_probe rather than silently falling back to
             // whatever `probe` floats the client also happened to send; a
             // silent fallback would mask a stale picker selection with no
-            // visible error.
+            // visible error. An empty-string personId (a picker with
+            // nothing selected) is deliberately treated as "not sent" --
+            // it falls through to the probe branch rather than a bad_probe
+            // 400 -- so a client can always include the field unconditionally.
             let refs: Float32Array[] | null;
             const personId = req.body?.personId;
             if (typeof personId === 'string' && personId.length > 0) {

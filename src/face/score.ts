@@ -1,6 +1,8 @@
 import { cosine, type Box } from './pipeline.js';
 import type { EmbeddedFace } from './matcher.js';
 
+// Provisional operating point, not a calibrated one -- see the comment on
+// MATCH_THRESHOLD below, which this value feeds.
 const DEFAULT_MATCH_THRESHOLD = 0.4;
 
 /**

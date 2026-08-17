@@ -1,0 +1,145 @@
+/**
+ * Persists the saved-people library: names and 512-float embeddings, plus a
+ * path to a downscaled copy of each reference photo. The photo itself is not
+ * expensive to keep around, but re-deriving an embedding from scratch is —
+ * so `pipelineVersion` and each reference's `image` path exist specifically
+ * so a future pipeline fix can re-embed automatically (see Task 9's
+ * `reembedIfStale`) rather than asking the user to re-upload every photo.
+ *
+ * This module owns storage only: no routes, no image writes, no re-embedding.
+ */
+import fs from 'fs/promises';
+import path from 'path';
+import crypto from 'crypto';
+
+export const PIPELINE_VERSION = 1;
+
+export type Reference = {
+    id: string;
+    image: string;
+    thumb: string;
+    embedding: number[];
+    detScore: number;
+    addedAt: string;
+};
+
+export type Person = {
+    id: string;
+    name: string;
+    createdAt: string;
+    references: Reference[];
+};
+
+export type NewReference = Omit<Reference, 'id' | 'addedAt'>;
+
+type FileShape = { pipelineVersion: number; people: Person[] };
+
+export type Store = {
+    list(): Person[];
+    get(id: string): Person | undefined;
+    addPerson(name: string, ref: NewReference): Promise<Person>;
+    addReference(personId: string, ref: NewReference): Promise<Person>;
+    deletePerson(id: string): Promise<void>;
+    deleteReference(personId: string, refId: string): Promise<Person>;
+    replaceAll(people: Person[]): Promise<void>;
+    dataDir: string;
+};
+
+const shortId = (prefix: string) => `${prefix}_${crypto.randomBytes(3).toString('hex')}`;
+
+export async function createStore(dataDir: string): Promise<Store> {
+    const file = path.join(dataDir, 'people.json');
+    await fs.mkdir(path.join(dataDir, 'people'), { recursive: true });
+
+    // `state.pipelineVersion` deliberately comes from the file, not from the
+    // PIPELINE_VERSION constant, except on first run. Task 9's staleness
+    // check depends on this file-vs-code comparison: `flush()` must write
+    // back whatever version is already in `state`, unchanged, so that a
+    // stale file stays observably stale until `replaceAll` (the only place
+    // that stamps PIPELINE_VERSION) re-embeds it. Do not "simplify" flush()
+    // to always stamp PIPELINE_VERSION — that would silently defeat
+    // staleness detection the moment any addPerson/addReference call fires.
+    let state: FileShape = { pipelineVersion: PIPELINE_VERSION, people: [] };
+    try {
+        state = JSON.parse(await fs.readFile(file, 'utf8'));
+    } catch {
+        // First run: no file yet. Start from the empty default above.
+    }
+
+    // Serialize mutations so a concurrent read-modify-write (including the
+    // final write-to-disk) cannot interleave and lose an entry. `run` is
+    // what callers await (and can reject on); `queue` swallows the
+    // rejection so a failed call doesn't poison the chain for whoever
+    // queues up next.
+    let queue: Promise<unknown> = Promise.resolve();
+    function serialize<T>(fn: () => Promise<T>): Promise<T> {
+        const run = queue.then(fn, fn);
+        queue = run.catch(() => {});
+        return run;
+    }
+
+    /** Temp file + rename, so a crash mid-write cannot truncate the store.
+     * The fixed name is deliberate: writes are already serialized per store
+     * instance, so there is no concurrent writer to collide with, and reusing
+     * one path means a crash between writeFile and rename leaves at most one
+     * orphaned tmp file, self-cleaned by the next flush. */
+    async function flush(): Promise<void> {
+        const tmp = `${file}.tmp`;
+        await fs.writeFile(tmp, JSON.stringify(state, null, 2));
+        await fs.rename(tmp, file);
+    }
+
+    function mustGet(id: string): Person {
+        const person = state.people.find(p => p.id === id);
+        if (!person) throw new Error(`no such person: ${id}`);
+        return person;
+    }
+
+    return {
+        dataDir,
+        list: () => state.people,
+        get: (id) => state.people.find(p => p.id === id),
+
+        addPerson: (name, ref) => serialize(async () => {
+            const person: Person = {
+                id: shortId('p'),
+                name,
+                createdAt: new Date().toISOString(),
+                references: [{ ...ref, id: shortId('ref'), addedAt: new Date().toISOString() }],
+            };
+            state.people.push(person);
+            await flush();
+            return person;
+        }),
+
+        addReference: (personId, ref) => serialize(async () => {
+            const person = mustGet(personId);
+            person.references.push({
+                ...ref, id: shortId('ref'), addedAt: new Date().toISOString(),
+            });
+            await flush();
+            return person;
+        }),
+
+        deletePerson: (id) => serialize(async () => {
+            state.people = state.people.filter(p => p.id !== id);
+            await fs.rm(path.join(dataDir, 'people', id), { recursive: true, force: true });
+            await flush();
+        }),
+
+        deleteReference: (personId, refId) => serialize(async () => {
+            const person = mustGet(personId);
+            if (person.references.length <= 1) {
+                throw new Error('cannot delete the last reference of a person; delete the person instead');
+            }
+            person.references = person.references.filter(r => r.id !== refId);
+            await flush();
+            return person;
+        }),
+
+        replaceAll: (people) => serialize(async () => {
+            state = { pipelineVersion: PIPELINE_VERSION, people };
+            await flush();
+        }),
+    };
+}

@@ -5,3 +5,4 @@ uploads/
 .DS_Store
 models/
 spike/crops/
+data/

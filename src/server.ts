@@ -13,7 +13,19 @@ const port = 3100;
 // an outlier and a missing model pack fails loudly at boot.
 console.log('Loading face models (this takes a few seconds) ...');
 const started = Date.now();
-const matcher = await createMatcher();
+let matcher: Awaited<ReturnType<typeof createMatcher>>;
+try {
+    matcher = await createMatcher();
+} catch (err) {
+    // Without this catch, a missing model pack surfaces as an unhandled
+    // top-level-await rejection stack trace -- burying
+    // assertModelsPresent's carefully actionable "run npm run setup:models"
+    // message, which is exactly what a first-run user most needs to see.
+    // Print just that message (or the raw error for anything unexpected)
+    // and exit non-zero, cleanly, instead.
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+}
 console.log(`Models ready in ${((Date.now() - started) / 1000).toFixed(1)}s`);
 console.log(`Match threshold: ${MATCH_THRESHOLD} (provisional, set FACE_MATCH_THRESHOLD to change)`);
 
@@ -29,7 +41,15 @@ const store = await createStore(dataDir);
 let storedVersion = PIPELINE_VERSION;
 try {
     const raw = await fs.readFile(path.join(dataDir, 'people.json'), 'utf8');
-    storedVersion = JSON.parse(raw).pipelineVersion ?? PIPELINE_VERSION;
+    const parsedVersion: unknown = JSON.parse(raw).pipelineVersion;
+    // `?? PIPELINE_VERSION` here would resolve a MISSING key to "current",
+    // making an unstamped store permanently invisible to the migration --
+    // and sticky, since JSON.stringify drops an undefined key on every
+    // subsequent flush. A non-number value (e.g. a hand-edited file, or a
+    // future format change) must not be treated as current either. Only an
+    // actual number found on disk counts; anything else is 0, which always
+    // compares stale against a real PIPELINE_VERSION and forces a re-embed.
+    storedVersion = typeof parsedVersion === 'number' ? parsedVersion : 0;
 } catch {
     // First run: no people.json yet.
 }

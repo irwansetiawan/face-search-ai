@@ -148,6 +148,33 @@ test('an existing valid store is still intact on disk after a failed createStore
     assert.equal(afterFailedLoad, '{"people": [ this is not json');
 });
 
+test('a people.json missing the pipelineVersion key reads as stale (0), not current, and stays explicit on the next flush', async () => {
+    const dir = await tmpDir();
+    await fs.mkdir(path.join(dir, 'people'), { recursive: true });
+    // An older-format file, or one with the key stripped by a hand edit: no
+    // pipelineVersion at all. `?? PIPELINE_VERSION` would resolve this
+    // MISSING key to "current" -- permanently hiding it from Task 9's
+    // migration, and sticky besides, since JSON.stringify drops an
+    // undefined key on every subsequent flush. It must instead resolve to
+    // 0 -- always stale against any real PIPELINE_VERSION.
+    await fs.writeFile(path.join(dir, 'people.json'), JSON.stringify({
+        people: [{
+            id: 'p_1', name: 'Sarah', createdAt: new Date().toISOString(),
+            references: [{ id: 'r_1', ...ref(0.1), addedAt: new Date().toISOString() }],
+        }],
+    }));
+
+    const store = await createStore(dir);
+    // Any mutation triggers a flush; updateReferencePaths is the narrowest
+    // one available and, per its own contract, must not stamp
+    // pipelineVersion current either.
+    await store.updateReferencePaths('p_1', 'r_1', 'people/x/new.jpg', 'people/x/new.thumb.png');
+
+    const onDisk = JSON.parse(await fs.readFile(path.join(dir, 'people.json'), 'utf8'));
+    assert.equal(onDisk.pipelineVersion, 0,
+        'a file that never had pipelineVersion must flush with an explicit 0, not silently stay keyless or jump to current');
+});
+
 test('updateReferencePaths corrects one reference in place without stamping pipelineVersion', async () => {
     const dir = await tmpDir();
     const store = await createStore(dir);

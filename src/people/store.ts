@@ -68,6 +68,17 @@ export async function createStore(dataDir: string): Promise<Store> {
     let state: FileShape = { pipelineVersion: PIPELINE_VERSION, people: [] };
     try {
         state = JSON.parse(await fs.readFile(file, 'utf8'));
+        // A file missing the key entirely (an older format) must read as
+        // stale (0), not as "current" -- `?? PIPELINE_VERSION` would
+        // resolve a MISSING key to current, making an unstamped store
+        // permanently invisible to Task 9's migration (and sticky, since
+        // JSON.stringify drops an undefined key on every subsequent flush).
+        // A non-number value (hand-edited file, future format change) must
+        // not read as current either. This only normalizes what came off
+        // disk -- the in-memory first-run default above is left untouched,
+        // so a genuine first run still starts at PIPELINE_VERSION and never
+        // looks stale.
+        state.pipelineVersion = typeof state.pipelineVersion === 'number' ? state.pipelineVersion : 0;
     } catch (err) {
         // ENOENT is the only failure that means "first run, no file yet" —
         // start from the empty default above. Everything else (permissions,

@@ -135,6 +135,41 @@ test('a malformed probe (wrong embedding length) is rejected with 400 and cleans
     });
 });
 
+test('a probe array of the right length but non-numeric elements is rejected with 400, not NaN cosines', async () => {
+    await withServer(async (base) => {
+        // Float32Array.from coerces non-numbers to NaN rather than
+        // throwing, so a 512-length array of strings would otherwise sail
+        // through parseProbe's length check as "valid-shaped". Every cosine
+        // against it would come out NaN, and JSON.stringify(NaN) serializes
+        // to `null` -- shipping cosine: null on every face, exactly the
+        // silently-wrong-result failure the zero-reference guard exists to
+        // prevent, reached through the other branch instead.
+        const before = uploadsSnapshot();
+        const fd = new FormData();
+        fd.append('target', new Blob([fs.readFileSync(path.join(IMAGES, 'obama_alt.jpg'))]), 'x.jpg');
+        fd.append('probe', JSON.stringify([Array.from({ length: 512 }, () => 'a')]));
+        const res = await fetch(`${base}/search`, { method: 'POST', body: fd });
+        assert.equal(res.status, 400);
+        assert.equal((await res.json()).error, 'bad_probe');
+
+        assert.deepEqual(uploadsSnapshot(), before,
+            'multer temp file must be unlinked on the bad_probe path');
+    });
+});
+
+test('a probe array of the right length with one NaN/Infinity element is rejected with 400', async () => {
+    await withServer(async (base) => {
+        const fd = new FormData();
+        fd.append('target', new Blob([fs.readFileSync(path.join(IMAGES, 'obama_alt.jpg'))]), 'x.jpg');
+        const values = Array.from({ length: 512 }, () => 0.1);
+        values[100] = Infinity;
+        fd.append('probe', JSON.stringify([values]));
+        const res = await fetch(`${base}/search`, { method: 'POST', body: fd });
+        assert.equal(res.status, 400);
+        assert.equal((await res.json()).error, 'bad_probe');
+    });
+});
+
 test('probe field missing entirely is rejected with 400 bad_probe', async () => {
     await withServer(async (base) => {
         const fd = new FormData();

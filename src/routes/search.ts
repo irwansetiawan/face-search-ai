@@ -13,6 +13,16 @@ export function parseProbe(raw: unknown): Float32Array[] | null {
     const refs: Float32Array[] = [];
     for (const v of parsed) {
         if (!Array.isArray(v) || v.length !== 512) return null;
+        // Element type matters, not just array length: Float32Array.from
+        // coerces non-numbers to NaN rather than throwing, so
+        // ['a', ...511 more] would otherwise sail through as a
+        // "valid-shaped" 512-length probe. Every cosine against it comes out
+        // NaN, and JSON.stringify(NaN) serializes to `null` -- shipping
+        // cosine: null on every face in the response. That is exactly the
+        // silently-wrong-result failure the zero-reference guard elsewhere
+        // in this file exists to prevent, reachable here through the other
+        // branch. Require every element to be an actual finite number.
+        if (!v.every(n => typeof n === 'number' && Number.isFinite(n))) return null;
         refs.push(Float32Array.from(v));
     }
     return refs;

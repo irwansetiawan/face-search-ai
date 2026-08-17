@@ -198,6 +198,16 @@ test('decodeDetections decodes, filters by score, and applies NMS', () => {
     assert.ok(!faces.some(f => Math.abs(f.detScore - 0.49) < 1e-6), 'sub-threshold candidate must not appear');
 });
 
+test('decodeDetections throws on the wrong number of output arrays instead of indexing silently wrong', () => {
+    // The 9-array layout (scores/bboxes/kps x3 strides) is assumed, not
+    // checked, everywhere below this guard. A wrong length or order --
+    // e.g. an ORT/model version mismatch reordering session outputs --
+    // would otherwise silently read a bboxes array as scores (wrong faces,
+    // no error) or index off the end (a bare, unhelpful TypeError).
+    assert.throws(() => decodeDetections([new Float32Array(0)], 1), /decodeDetections/);
+    assert.throws(() => decodeDetections([], 1), /decodeDetections/);
+});
+
 // ---------------------------------------------------------------- alignCrop
 
 test('alignCrop is the identity sampling + /127.5 normalization when kps equal the ArcFace reference', () => {

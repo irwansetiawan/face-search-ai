@@ -173,7 +173,13 @@ function nms(faces: Candidate[], thresh: number): Candidate[] {
  * NMS-filtered faces. Does not run the model — the caller owns the ORT session.
  */
 export function decodeDetections(outputs: Float32Array[], scale: number): DetectedFace[] {
-  // Output order is scores[3], bboxes[3], kps[3] — one per FPN stride.
+  // Output order is scores[3], bboxes[3], kps[3] — one per FPN stride. A
+  // wrong length or order (a model/ORT version mismatch, a session output
+  // reordering) would otherwise silently index into the wrong array below,
+  // yielding wrong faces or a bare TypeError with no clue why.
+  if (outputs.length !== STRIDES.length * 3) {
+    throw new Error(`decodeDetections: expected ${STRIDES.length * 3} output arrays, got ${outputs.length}`);
+  }
   const candidates: Candidate[] = [];
   for (let s = 0; s < STRIDES.length; s++) {
     const stride = STRIDES[s];

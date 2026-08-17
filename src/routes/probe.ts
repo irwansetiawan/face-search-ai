@@ -50,11 +50,17 @@ export function probeHandler(matcher: Matcher): RequestHandler {
                         status = 422;
                         body = { error: 'no_face_detected' };
                     }
-                } catch {
+                } catch (err) {
                     // embedLargest's first step decodes the uploaded bytes
                     // as an image (via sharp). A thrown error here means the
                     // bytes are not a decodable image -- that IS the
-                    // client's fault, per the documented contract.
+                    // client's fault, per the documented contract. Logged
+                    // (matching search.ts and people.ts) so a genuine ONNX
+                    // inference fault surfaced through this same catch --
+                    // not just a bad-image decode failure -- leaves a trace
+                    // instead of silently reporting unreadable_image with
+                    // nothing recorded anywhere.
+                    console.error('probe: failed to decode uploaded photo', err);
                     status = 400;
                     body = { error: 'unreadable_image' };
                 }

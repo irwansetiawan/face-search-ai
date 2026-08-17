@@ -3,3 +3,5 @@ node_modules/
 .env
 uploads/
 .DS_Store
+models/
+spike/crops/

@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
+import fsp from 'fs/promises';
+import os from 'os';
 import path from 'path';
 import { createMatcher, type Matcher } from '../face/matcher.js';
+import { createStore } from '../people/store.js';
 import { createApp } from '../app.js';
 
 const IMAGES = path.join(process.cwd(), 'spike', 'images');
@@ -19,7 +22,10 @@ async function getMatcher(): Promise<Matcher> {
 }
 
 async function withServer(fn: (base: string) => Promise<void>) {
-    const app = createApp(await getMatcher());
+    // These tests don't exercise the people store; a fresh temp dir per call
+    // is only here because createApp requires one.
+    const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'search-test-'));
+    const app = createApp(await getMatcher(), await createStore(dir));
     const server = app.listen(0);
     await new Promise(r => server.once('listening', r));
     const { port } = server.address() as { port: number };

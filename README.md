@@ -1,6 +1,6 @@
 # Introduction
 
-Face Search AI is a web application that analyzes and compares faces using a source image and find matching faces in the target image using machine learning, powered by AWS.
+Face Search AI is a web application that analyzes and compares faces using a source image and find matching faces in the target image using machine learning, running entirely on your own machine.
 
 Nobody can notice Leonardo DiCaprio in a crowd, but AI can:
 
@@ -8,14 +8,17 @@ Nobody can notice Leonardo DiCaprio in a crowd, but AI can:
 
 # Requirements
 
-1. Create an AWS account
-2. Create an IAM user and generate credentials, create AWS access key and AWS secret access key that you can add to `.env` file. Ensure the IAM user has full access to AWS Rekognition.
+1. Node 20+ on macOS (Apple Silicon recommended — CoreML gives 3.6x on detection
+   and 55x on recognition).
+2. Download the face models once: `npm run setup:models` (275 MB).
 
-Note: Every request will incur a very small cost on your AWS account. In North Virginia region, it'll cost $0.001 for every request.
+No cloud account and no API costs — everything runs locally.
 
 # Run in localhost
 
 ```
+npm install
+npm run setup:models
 npm run build
 npm run server
 ```

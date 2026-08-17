@@ -1,24 +1,18 @@
 import 'dotenv/config';
-import express from 'express';
-import path from 'path';
-import { compareFace } from './compare-face.js';
-import multer from 'multer';
-import { fileURLToPath } from 'url';
+import { createApp } from './app.js';
+import { createMatcher } from './face/matcher.js';
+import { MATCH_THRESHOLD } from './face/score.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const app = express();
 const port = 3100;
 
-// Serve static files
-app.use(express.static(path.join(__dirname, '/static')));
+// Models take ~5s to compile. Load before listening so the first request is not
+// an outlier and a missing model pack fails loudly at boot.
+console.log('Loading face models (this takes a few seconds) ...');
+const started = Date.now();
+const matcher = await createMatcher();
+console.log(`Models ready in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+console.log(`Match threshold: ${MATCH_THRESHOLD} (provisional, set FACE_MATCH_THRESHOLD to change)`);
 
-// Submit
-const upload = multer({ dest: 'uploads/' })
-const submitUploadFields = upload.fields([{name:'source'},{name:'target'}])
-app.post('/submit', submitUploadFields, compareFace);
-
-app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
+createApp(matcher).listen(port, () => {
+    console.log(`Server running on http://localhost:${port}`);
 });

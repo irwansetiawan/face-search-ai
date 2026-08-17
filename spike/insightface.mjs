@@ -20,17 +20,6 @@
  * pre-port spike) expect absolute-pixel `bbox`/`width`/`height` and a `score`
  * field. That adaptation happens below rather than in `matcher.ts`, whose
  * signature and return shape are fixed by Task 3.
- *
- * Known limitation: `dump-crops.mjs` reads `face.kps` directly off faces
- * returned by `embedAll` to render its own crop by hand. `EmbeddedFace` does
- * not carry keypoints (by design — see Task 3's controller rulings), and
- * there is no way to recover them through `matcher.js`'s public API without
- * standing up a second, duplicate ONNX session in this shim, which would
- * undo the point of this rewiring. `dump-crops.mjs` will throw on that line
- * until it's rewritten against `matcher.alignedCropPng(file, faceIndex)`,
- * which now supersedes what it was doing by hand. `match.mjs`,
- * `compare-oracle.mjs`, and `decision-diff.mjs` are unaffected — they don't
- * touch `kps`.
  */
 import { readFile } from 'fs/promises';
 import {

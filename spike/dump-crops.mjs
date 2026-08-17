@@ -9,11 +9,10 @@
  *
  *   node spike/dump-crops.mjs spike/images/obama_portrait.jpg [...]
  */
-import sharp from 'sharp';
 import path from 'path';
-import { mkdir } from 'fs/promises';
+import { mkdir, writeFile } from 'fs/promises';
 import { fileURLToPath } from 'url';
-import { createMatcher, loadImage, alignCrop } from './insightface.mjs';
+import { createMatcher } from './insightface.mjs';
 
 const files = process.argv.slice(2);
 if (files.length === 0) {
@@ -27,26 +26,19 @@ await mkdir(outDir, { recursive: true });
 const matcher = await createMatcher();
 
 for (const file of files) {
-  const img = await loadImage(file);
   const { faces } = await matcher.embedAll(file);
   if (faces.length === 0) { console.log(`${file}: no face`); continue; }
 
   // Largest face only — same selection rule as the probe.
   const face = faces.reduce((a, b) => (a.width * a.height >= b.width * b.height ? a : b));
 
-  // Undo the (x-127.5)/127.5 normalization and convert CHW float -> HWC uint8.
-  const chw = alignCrop(img, face.kps);
-  const size = 112, plane = size * size;
-  const rgb = Buffer.alloc(plane * 3);
-  for (let i = 0; i < plane; i++) {
-    for (let c = 0; c < 3; c++) {
-      rgb[i * 3 + c] = Math.max(0, Math.min(255, Math.round(chw[c * plane + i] * 127.5 + 127.5)));
-    }
-  }
+  // faceIndex (detection order) is what alignedCropPng needs, not the
+  // position of `face` in this sorted-by-area array.
+  const png = await matcher.alignedCropPng(file, face.faceIndex);
 
   const base = path.basename(file, path.extname(file));
   const out = path.join(outDir, `${base}.aligned.png`);
-  await sharp(rgb, { raw: { width: size, height: size, channels: 3 } }).png().toFile(out);
+  await writeFile(out, png);
 
   // Where did the 5 landmarks land after the transform? Should be ~ARCFACE_DST.
   console.log(`${base}: det ${face.score.toFixed(3)}  ${face.width.toFixed(0)}x${face.height.toFixed(0)} px -> ${path.basename(out)}`);

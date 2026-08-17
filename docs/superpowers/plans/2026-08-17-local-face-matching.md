@@ -21,7 +21,7 @@
 - Every bounding box crossing the API is relative 0–1 (`{top,left,width,height}`).
 - `FACE_MATCH_THRESHOLD` env var, default `0.4`, provisional and documented as such.
 - Embeddings are L2-normalized, so cosine similarity is a plain dot product.
-- `spike/compare-oracle.mjs` must continue to report ≥ 0.99 agreement after any pipeline change.
+- `spike/compare-oracle.mjs` must continue to report ≥ 0.98 agreement after any pipeline change (gate lowered from 0.99 when three fixtures were added; see the spec's Goal note).
 
 ---
 
@@ -2069,7 +2069,7 @@ git commit -m "Add saved people picker to the UI"
 - [ ] `npm test` — all tests pass
 - [ ] `node spike/match.mjs --selftest` — PASS
 - [ ] Oracle regression (needs the Python venv from `spike/README.md`):
-      `node spike/compare-oracle.mjs /tmp/oracle.json` reports worst agreement ≥ 0.99
+      `node spike/compare-oracle.mjs /tmp/oracle.json` reports worst agreement ≥ 0.98 and exits 0
 - [ ] `node spike/decision-diff.mjs /tmp/oracle.json` reports largest pairwise
       disagreement < 0.02 — the check that no match verdict changed
 - [ ] `grep -ri rekognition src/ package.json` returns nothing

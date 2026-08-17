@@ -24,7 +24,7 @@ export function createApp(matcher: Matcher, store: Store): express.Express {
     // of publicPerson() stripping embeddings out of every API response.
     app.use('/people-files/people', express.static(path.join(store.dataDir, 'people')));
     app.post('/probe', upload.fields([{ name: 'source', maxCount: 1 }]), probeHandler(matcher));
-    app.post('/search', upload.fields([{ name: 'target', maxCount: 1 }]), searchHandler(matcher));
+    app.post('/search', upload.fields([{ name: 'target', maxCount: 1 }]), searchHandler(matcher, store));
     app.use('/people', peopleRouter(store, matcher));
 
     return app;

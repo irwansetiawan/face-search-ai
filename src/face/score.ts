@@ -1,11 +1,48 @@
 import { cosine, type Box } from './pipeline.js';
 import type { EmbeddedFace } from './matcher.js';
 
+const DEFAULT_MATCH_THRESHOLD = 0.4;
+
+/**
+ * Resolves FACE_MATCH_THRESHOLD from a raw env value. `??` alone is not
+ * enough here: it substitutes only on `undefined`, so two misconfigurations
+ * would otherwise pass through silently --
+ *   - `FACE_MATCH_THRESHOLD=` (empty/whitespace string): `Number('')` is
+ *     `0`, a threshold that matches every face in every photo.
+ *   - a non-numeric value: `Number('abc')` is `NaN`, which matches nothing
+ *     (every comparison against NaN is false).
+ * Both are silent, total behavioral failures -- the server's boot log would
+ * print the bad value as though it were a valid threshold. Anything that
+ * isn't a finite number after trimming falls back to the default and warns
+ * loudly on stderr instead.
+ */
+export function resolveThreshold(raw: string | undefined): number {
+    const trimmed = raw?.trim();
+    if (!trimmed) {
+        if (raw !== undefined) {
+            console.warn(
+                `FACE_MATCH_THRESHOLD is set but empty/whitespace; ` +
+                `falling back to the default ${DEFAULT_MATCH_THRESHOLD}.`
+            );
+        }
+        return DEFAULT_MATCH_THRESHOLD;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) {
+        console.warn(
+            `FACE_MATCH_THRESHOLD="${raw}" is not a valid number; ` +
+            `falling back to the default ${DEFAULT_MATCH_THRESHOLD}.`
+        );
+        return DEFAULT_MATCH_THRESHOLD;
+    }
+    return parsed;
+}
+
 // Provisional operating point, not a calibrated one. It has not been tuned
 // against a labelled dataset -- it is a starting value to unblock the rest
 // of the pipeline, and is expected to move once real precision/recall data
 // exists.
-export const MATCH_THRESHOLD = Number(process.env.FACE_MATCH_THRESHOLD ?? 0.4);
+export const MATCH_THRESHOLD = resolveThreshold(process.env.FACE_MATCH_THRESHOLD);
 
 export type ScoredFace = {
     box: Box;

@@ -1,7 +1,52 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { scoreFaces } from './score.js';
+import { scoreFaces, resolveThreshold } from './score.js';
 import type { EmbeddedFace } from './matcher.js';
+
+/** Runs `fn` with console.warn captured (not printed), returning both the
+ * warnings it recorded and fn's return value. Keeps test output pristine
+ * while still letting a test assert that a warning did (or did not) fire. */
+function captureWarnings<T>(fn: () => T): { result: T; warnings: string[] } {
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args.join(' ')); };
+    try {
+        return { result: fn(), warnings };
+    } finally {
+        console.warn = original;
+    }
+}
+
+test('resolveThreshold: unset env var falls back to the default without warning', () => {
+    const { result, warnings } = captureWarnings(() => resolveThreshold(undefined));
+    assert.equal(result, 0.4);
+    assert.equal(warnings.length, 0);
+});
+
+test('resolveThreshold: a valid numeric string is used as-is', () => {
+    const { result, warnings } = captureWarnings(() => resolveThreshold('0.55'));
+    assert.equal(result, 0.55);
+    assert.equal(warnings.length, 0);
+});
+
+test('resolveThreshold: empty string does NOT silently become 0 -- falls back with a warning', () => {
+    const { result, warnings } = captureWarnings(() => resolveThreshold(''));
+    assert.equal(result, 0.4);
+    assert.equal(warnings.length, 1);
+});
+
+test('resolveThreshold: whitespace-only string falls back with a warning', () => {
+    const { result, warnings } = captureWarnings(() => resolveThreshold('   '));
+    assert.equal(result, 0.4);
+    assert.equal(warnings.length, 1);
+});
+
+test('resolveThreshold: non-numeric string falls back to the default with a warning, not NaN', () => {
+    const { result, warnings } = captureWarnings(() => resolveThreshold('not-a-number'));
+    assert.equal(result, 0.4);
+    assert.ok(Number.isFinite(result));
+    assert.equal(warnings.length, 1);
+});
 
 function unit(...values: number[]): Float32Array {
     const v = new Float32Array(512);

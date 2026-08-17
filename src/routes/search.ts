@@ -1,6 +1,7 @@
 import type { RequestHandler } from 'express';
 import fs from 'fs/promises';
 import type { Matcher } from '../face/matcher.js';
+import type { Store } from '../people/store.js';
 import { scoreFaces, MATCH_THRESHOLD } from '../face/score.js';
 
 /** Parses the `probe` field: a JSON array of 512-length embedding arrays. */
@@ -28,7 +29,7 @@ export function parseProbe(raw: unknown): Float32Array[] | null {
  * ("nobody in this photo"), not an error -- unlike Rekognition, which raised
  * an exception. That case is a 200 with `faces: []` here.
  */
-export function searchHandler(matcher: Matcher): RequestHandler {
+export function searchHandler(matcher: Matcher, store: Store): RequestHandler {
     return async (req, res) => {
         const files = req.files as { [f: string]: Express.Multer.File[] };
         const upload = files?.target?.[0];
@@ -44,8 +45,34 @@ export function searchHandler(matcher: Matcher): RequestHandler {
         let status = 500;
         let body: Record<string, unknown> = { error: 'search_failed' };
         try {
-            const refs = parseProbe(req.body?.probe);
-            if (!refs) {
+            // `personId` and `probe` are alternatives, not both-required --
+            // and when both are sent, personId wins. personId names durable
+            // stored data (a saved person), so an unknown/stale id is
+            // surfaced as bad_probe rather than silently falling back to
+            // whatever `probe` floats the client also happened to send; a
+            // silent fallback would mask a stale picker selection with no
+            // visible error.
+            let refs: Float32Array[] | null;
+            const personId = req.body?.personId;
+            if (typeof personId === 'string' && personId.length > 0) {
+                const person = store.get(personId);
+                // A person with zero references is unreachable through the
+                // store's own API today (deleteReference refuses to drop the
+                // last reference), but /search must not depend on that
+                // invariant holding elsewhere. scoreFaces([], ...) returns
+                // bestReference: -1 and cosine: -Infinity for every face,
+                // and JSON.stringify(-Infinity) serializes to `null` -- so
+                // every face in the response would silently carry
+                // cosine: null. Treat a person with no references as a bad
+                // probe instead of ever calling scoreFaces with empty refs.
+                refs = person && person.references.length > 0
+                    ? person.references.map(r => Float32Array.from(r.embedding))
+                    : null;
+            } else {
+                refs = parseProbe(req.body?.probe);
+            }
+
+            if (!refs || refs.length === 0) {
                 status = 400;
                 body = { error: 'bad_probe' };
             } else {

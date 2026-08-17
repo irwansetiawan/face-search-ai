@@ -14,7 +14,7 @@ import path from 'path';
 import crypto from 'crypto';
 import sharp from 'sharp';
 import type { Store, NewReference, Person } from '../people/store.js';
-import type { Matcher } from '../face/matcher.js';
+import type { Matcher, EmbeddedFace } from '../face/matcher.js';
 
 // Detection runs at 640px; a stored original larger than this is disk space
 // a re-embed could never make use of.
@@ -39,8 +39,13 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
     const upload = multer({ dest: 'uploads/' });
 
     /**
-     * Embeds the largest face in `buffer` and writes both stored artefacts
-     * (downscaled original + aligned avatar crop) under `people/<dirId>/`.
+     * Writes both stored artefacts (downscaled original + aligned avatar
+     * crop, cropped from `face.faceIndex` -- NOT a hardcoded 0, since
+     * embedLargest ranks by clamped box area and is not necessarily the
+     * first face detected; passing 0 would crop whichever face happened to
+     * be detected first, a different face from the one the embedding
+     * actually came from on any multi-face photo where the largest face
+     * isn't first) under `people/<dirId>/`.
      *
      * Both files are written to their FINAL resting path before this
      * function returns, and only once it returns does a caller ever call
@@ -48,15 +53,13 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
      * upholds the ordering invariant: the store must never persist a path
      * to a file that isn't already there.
      *
-     * Returns null when no face is found (caller maps that to 422). Throws
-     * when `buffer` can't be decoded as an image at all (caller maps that to
-     * 400 unreadable_image), matching probe/search's contract for
-     * `matcher.embed*`.
+     * Everything this function can throw (disk full, permissions, a bug in
+     * `alignedCropPng`) is a server-side fault, not the client's -- `face`
+     * has already been successfully decoded from the client's bytes by the
+     * time this is called. Callers must NOT fold a throw from here into
+     * `unreadable_image`.
      */
-    async function ingest(dirId: string, buffer: Buffer): Promise<NewReference | null> {
-        const face = await matcher.embedLargest(buffer);
-        if (!face) return null;
-
+    async function writeArtifacts(dirId: string, buffer: Buffer, face: EmbeddedFace): Promise<NewReference> {
         const dir = path.join(store.dataDir, 'people', dirId);
         await fs.mkdir(dir, { recursive: true });
         const stamp = `${Date.now().toString(36)}${crypto.randomBytes(3).toString('hex')}`;
@@ -72,14 +75,6 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
 
             await fs.writeFile(
                 path.join(store.dataDir, thumbRel),
-                // face.faceIndex, NOT a hardcoded 0: embedLargest returns
-                // the largest face by clamped box area, which is not
-                // necessarily the first one detected. alignedCropPng
-                // indexes into detection order, so passing 0 here would
-                // crop whichever face happened to be detected first -- a
-                // different face from the one the embedding actually came
-                // from on any multi-face photo where the largest face
-                // isn't first.
                 await matcher.alignedCropPng(buffer, face.faceIndex),
             );
         } catch (err) {
@@ -128,30 +123,54 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
             }
 
             if (buffer) {
-                // The real person id only exists once store.addPerson
-                // returns, so ingest first writes under a disposable,
-                // locally-generated directory name. addPerson is called with
-                // paths that already point at real files (upholding the
-                // ordering invariant); the artefacts are then COPIED (not
-                // renamed) into a directory named after the real person id,
-                // so store.ts's deletePerson (which assumes people/<id>/)
-                // can clean them up later. Copying instead of renaming means
-                // both locations hold valid files for the entire window
-                // between "final copy exists" and "store points at it" --
-                // the store's persisted path is never allowed to go stale,
-                // which a rename-then-patch would risk if the process died
-                // between the two steps.
-                const pendingId = `pending_${crypto.randomBytes(6).toString('hex')}`;
+                // Only this decode step -- matcher.embedLargest's first
+                // move is to decode `buffer` as an image (via sharp) -- maps
+                // a throw to 400 unreadable_image. Everything after it
+                // (writing files, talking to the store) is a server-side
+                // fault if it throws, not the client's, and must fall
+                // through to the 500 default instead.
+                let face: EmbeddedFace | null | undefined;
                 try {
-                    const ref = await ingest(pendingId, buffer);
-                    if (!ref) {
-                        status = 422;
-                        body = { error: 'no_face_detected' };
-                        await fs.rm(path.join(store.dataDir, 'people', pendingId),
-                            { recursive: true, force: true }).catch(() => {});
-                    } else {
+                    face = await matcher.embedLargest(buffer);
+                } catch (err) {
+                    console.error('people: failed to decode uploaded photo', err);
+                    status = 400;
+                    body = { error: 'unreadable_image' };
+                }
+
+                if (face === null) {
+                    status = 422;
+                    body = { error: 'no_face_detected' };
+                } else if (face) {
+                    // The real person id only exists once store.addPerson
+                    // returns, so writeArtifacts first writes under a
+                    // disposable, locally-generated directory name.
+                    // addPerson is called with paths that already point at
+                    // real files (upholding the ordering invariant); the
+                    // artefacts are then COPIED (not renamed) into a
+                    // directory named after the real person id, so
+                    // store.ts's deletePerson (which assumes people/<id>/)
+                    // can clean them up later. Copying instead of renaming
+                    // means both locations hold valid files for the entire
+                    // window between "final copy exists" and "store points
+                    // at it" -- the store's persisted path is never allowed
+                    // to go stale, which a rename-then-patch would risk if
+                    // the process died between the two steps.
+                    const pendingId = `pending_${crypto.randomBytes(6).toString('hex')}`;
+                    // Tracks whether store.addPerson actually took ownership
+                    // of the pendingId paths (i.e. its flush succeeded and a
+                    // persisted record now references them). Declared
+                    // outside the try so the catch below can see it: only
+                    // once this is true is rm'ing the pending directory on a
+                    // later failure forbidden -- before that point it would
+                    // just be cleaning up writeArtifacts' own output, which
+                    // nothing persisted references yet.
+                    let registered = false;
+                    try {
+                        const ref = await writeArtifacts(pendingId, buffer, face);
                         const person = await store.addPerson(name, ref);
-                        const [first] = person.references;
+                        registered = true;
+                        const first = person.references[0];
                         const finalDir = path.join(store.dataDir, 'people', person.id);
                         const newImageRel = first.image.replace(pendingId, person.id);
                         const newThumbRel = first.thumb.replace(pendingId, person.id);
@@ -181,16 +200,19 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
 
                         if (copied) {
                             // Both artefacts now exist at BOTH the pending
-                            // and final paths. Only mutate the in-memory
-                            // paths (and persist them) now that the final
-                            // copies are confirmed to exist -- if replaceAll
-                            // itself throws, these paths are still valid on
-                            // disk, so nothing breaks; the pending copies are
+                            // and final paths. updateReferencePaths mutates
+                            // and flushes inside the store's own serialized
+                            // queue and does NOT stamp pipelineVersion --
+                            // unlike replaceAll(store.list()), which both
+                            // races a concurrent mutation captured outside
+                            // that queue and would incorrectly mark the
+                            // whole store "current". If this throws, the
+                            // pending-path references (already flushed) are
+                            // still valid on disk (nothing was removed
+                            // yet), so nothing breaks; the final copies are
                             // just left behind as a harmless duplicate.
-                            first.image = newImageRel;
-                            first.thumb = newThumbRel;
                             try {
-                                await store.replaceAll(store.list());
+                                await store.updateReferencePaths(person.id, first.id, newImageRel, newThumbRel);
                                 await fs.rm(path.join(store.dataDir, 'people', pendingId),
                                     { recursive: true, force: true }).catch(() => {});
                             } catch (err) {
@@ -203,17 +225,24 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
 
                         status = 201;
                         body = publicPerson(person);
+                    } catch (err) {
+                        console.error('people: failed to create person', err);
+                        // status/body remain the 500 default -- writing
+                        // artefacts or talking to the store failing is a
+                        // server-side fault, not the client's. If addPerson
+                        // never resolved (registered stays false -- e.g. its
+                        // flush() hit a disk/permissions fault), nothing
+                        // persisted references the pending directory yet, so
+                        // clean it up rather than leaving it orphaned. Once
+                        // registered is true, a persisted record DOES
+                        // reference those paths (or, further down, the
+                        // relabelled ones) -- rm'ing here would break the
+                        // exact invariant this route exists to uphold.
+                        if (!registered) {
+                            await fs.rm(path.join(store.dataDir, 'people', pendingId),
+                                { recursive: true, force: true }).catch(() => {});
+                        }
                     }
-                } catch (err) {
-                    // ingest's first step decodes the uploaded bytes as an
-                    // image (via matcher.embedLargest -> sharp). A thrown
-                    // error here means the bytes are not a decodable image --
-                    // the client's fault.
-                    console.error('people: failed to decode uploaded photo', err);
-                    status = 400;
-                    body = { error: 'unreadable_image' };
-                    await fs.rm(path.join(store.dataDir, 'people', pendingId),
-                        { recursive: true, force: true }).catch(() => {});
                 }
             }
         } finally {
@@ -245,23 +274,32 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
                 }
 
                 if (buffer) {
+                    let face: EmbeddedFace | null | undefined;
                     try {
-                        // The person already exists, so its final directory
-                        // name is already known -- no pending/rename dance
-                        // needed here, unlike person creation.
-                        const ref = await ingest(req.params.id, buffer);
-                        if (!ref) {
-                            status = 422;
-                            body = { error: 'no_face_detected' };
-                        } else {
-                            const person = await store.addReference(req.params.id, ref);
-                            status = 200;
-                            body = publicPerson(person);
-                        }
+                        face = await matcher.embedLargest(buffer);
                     } catch (err) {
                         console.error('people: failed to decode uploaded photo', err);
                         status = 400;
                         body = { error: 'unreadable_image' };
+                    }
+
+                    if (face === null) {
+                        status = 422;
+                        body = { error: 'no_face_detected' };
+                    } else if (face) {
+                        try {
+                            // The person already exists, so its final
+                            // directory name is already known -- no
+                            // pending/copy dance needed here, unlike person
+                            // creation.
+                            const ref = await writeArtifacts(req.params.id, buffer, face);
+                            const person = await store.addReference(req.params.id, ref);
+                            status = 200;
+                            body = publicPerson(person);
+                        } catch (err) {
+                            console.error('people: failed to add reference', err);
+                            // status/body remain the 500 default.
+                        }
                     }
                 }
             }

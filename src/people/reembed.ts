@@ -6,9 +6,10 @@
  *
  * Runs once at boot (see Task 10's server.ts wiring), before the server
  * starts accepting requests. `list()`/`get()` return live references into
- * the store's internal state, so mutating the `Person` objects in place and
- * then persisting with `replaceAll` is safe here only because nothing else
- * can be mutating the store concurrently — this module does not add any
+ * the store's internal state, so relying on `store.updateReferenceEmbedding`
+ * to mutate a `Person`'s reference in place (visible through the same object
+ * this module already holds) is safe here only because nothing else can be
+ * mutating the store concurrently — this module does not add any
  * concurrency protection of its own.
  */
 import fs from 'fs/promises';
@@ -25,13 +26,23 @@ import type { Matcher } from '../face/matcher.js';
  * A reference whose image file is missing or unreadable, or in which no face
  * is found, keeps its stale embedding rather than being dropped: losing
  * someone's saved person because one file went missing would be worse than
- * serving a slightly outdated vector for it. But because this is the sole
- * recovery mechanism for stale embeddings and the store's version stamp only
- * advances via `replaceAll`, a skipped reference retries -- and can be
- * silently skipped again -- on every future boot until it's fixed. Each skip
- * is therefore logged individually (who, which reference, which file, why),
- * plus one summary line if anything was skipped, so it's visible in boot
- * output rather than invisible.
+ * serving a slightly outdated vector for it. Each skip is logged
+ * individually (who, which reference, which file, why), plus one summary
+ * line if anything was skipped, so it's visible in boot output rather than
+ * invisible.
+ *
+ * Every successfully re-embedded reference is persisted immediately via
+ * `store.updateReferenceEmbedding`, which does NOT stamp `pipelineVersion`.
+ * The store's on-disk version is only ever advanced to `PIPELINE_VERSION`
+ * (via `replaceAll`, at the very end) when `skipped === 0` -- i.e. every
+ * single reference in the store re-embedded cleanly this run. That is what
+ * makes the retry guarantee actually hold: if even one reference is skipped,
+ * the file stays observably stale, so THIS ENTIRE RUN is retried on the next
+ * boot -- not just the reference that failed. A store with one permanently
+ * broken reference (file gone for good, never fixed) therefore re-embeds
+ * every OTHER reference on every future boot too -- a deliberate trade:
+ * retrying forever is the cost of never silently letting a fixable stale
+ * reference stop retrying.
  */
 export async function reembedIfStale(
     store: Store, matcher: Matcher, storedVersion: number
@@ -54,8 +65,13 @@ export async function reembedIfStale(
                     );
                     continue;
                 }
-                ref.embedding = Array.from(face.embedding);
-                ref.detScore = face.detScore;
+                // Persisted immediately and individually -- not batched into
+                // a single end-of-run write -- so a successful re-embed
+                // survives on disk even if a later reference in this same
+                // run fails and the run as a whole never reaches the
+                // clean-sweep replaceAll below.
+                await store.updateReferenceEmbedding(
+                    person.id, ref.id, Array.from(face.embedding), face.detScore);
                 updated++;
             } catch (err) {
                 skipped++;
@@ -69,6 +85,8 @@ export async function reembedIfStale(
     if (skipped > 0) {
         console.warn(`reembed: ${updated} reference(s) re-embedded, ${skipped} skipped and left stale`);
     }
-    if (updated > 0) await store.replaceAll(people);
+    // Only a fully clean sweep may advance the version stamp -- see the
+    // doc comment above for why a partial success must not.
+    if (updated > 0 && skipped === 0) await store.replaceAll(people);
     return updated;
 }

@@ -77,6 +77,24 @@ test('creates a person, lists them, and adds a second reference', async () => {
     });
 });
 
+test('POST /:id/references: a server-side write fault is also a 500, not 400 unreadable_image', async () => {
+    await withServer(async (base, store) => {
+        const { body: person } = await createPerson(base, 'obama_portrait.jpg', 'Barack');
+        const personDir = path.join(store.dataDir, 'people', person.id);
+        await fsp.chmod(personDir, 0o500); // read+execute only, no write
+        try {
+            const res = await fetch(`${base}/people/${person.id}/references`, {
+                method: 'POST', body: photoForm('obama_alt.jpg'),
+            });
+            assert.equal(res.status, 500,
+                'a disk/permission fault writing artefacts must not be blamed on the client');
+            assert.notEqual((await res.json()).error, 'unreadable_image');
+        } finally {
+            await fsp.chmod(personDir, 0o700);
+        }
+    });
+});
+
 test('rejects a photo with no face', async () => {
     await withServer(async (base) => {
         const blank = await (await import('sharp')).default({
@@ -133,6 +151,57 @@ test('unreadable bytes are rejected with 400 unreadable_image, not registered as
         assert.equal(res.status, 400);
         assert.equal((await res.json()).error, 'unreadable_image');
         assert.equal((await (await fetch(`${base}/people`)).json()).length, 0);
+    });
+});
+
+test('a server-side write fault (disk/permissions) is a 500, not 400 unreadable_image', async () => {
+    await withServer(async (base, store) => {
+        // The uploaded photo is perfectly decodable; what fails is writing
+        // the stored artefacts (mkdir inside writeArtifacts), which is a
+        // server-side fault, not the client's. This is the regression
+        // finding 1 covers: the try/catch that maps a throw to 400
+        // unreadable_image must be scoped to the decode step only, not to
+        // everything that happens afterward.
+        const peopleDir = path.join(store.dataDir, 'people');
+        await fsp.chmod(peopleDir, 0o500); // read+execute only, no write
+        try {
+            const res = await fetch(`${base}/people`, {
+                method: 'POST', body: photoForm('obama_portrait.jpg', { name: 'Barack' }),
+            });
+            assert.equal(res.status, 500,
+                'a disk/permission fault writing artefacts must not be blamed on the client');
+            assert.notEqual((await res.json()).error, 'unreadable_image');
+        } finally {
+            await fsp.chmod(peopleDir, 0o700);
+        }
+    });
+});
+
+test('a store flush failure during person creation is a 500 and leaves no orphaned pending directory', async () => {
+    await withServer(async (base, store) => {
+        // Unlike the write-fault test above (which fails inside
+        // writeArtifacts, before any directory is ever registered with the
+        // store), this fails one step later: writeArtifacts succeeds (both
+        // artefacts land under people/pending_<hex>/), but
+        // store.addPerson's flush() -- which writes people.json directly
+        // under dataDir, not under dataDir/people -- hits EACCES. `people/`
+        // itself keeps its normal mode, so mkdir and both artefact writes
+        // still succeed.
+        await fsp.chmod(store.dataDir, 0o500); // read+execute only, no write
+        try {
+            const res = await fetch(`${base}/people`, {
+                method: 'POST', body: photoForm('obama_portrait.jpg', { name: 'Barack' }),
+            });
+            assert.equal(res.status, 500,
+                'a disk/permission fault persisting the new person must not be blamed on the client');
+
+            const entries = await fsp.readdir(path.join(store.dataDir, 'people'));
+            assert.deepEqual(entries, [],
+                'writeArtifacts succeeded but addPerson never registered it -- ' +
+                'the pending directory must be cleaned up, not left orphaned');
+        } finally {
+            await fsp.chmod(store.dataDir, 0o700);
+        }
     });
 });
 

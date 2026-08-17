@@ -128,6 +128,97 @@ test('a reference whose image file is missing keeps its stale vector instead of 
     assert.ok(summary, `expected a summary line mentioning 1 skipped reference; got: ${JSON.stringify(warnings)}`);
 });
 
+test('a partial failure persists the successful re-embeds but leaves pipelineVersion stale, so the failed reference retries on the next boot', async () => {
+    const m = await getMatcher();
+    const dir = await tmpDir();
+    const goodRel = await plantImage(dir);
+    const missingRel = path.join('people', 'nope', 'missing.jpg');
+    const personId = 'p_1';
+    const goodRefId = 'ref_good';
+    const missingRefId = 'ref_missing';
+
+    // Seed the on-disk file directly, the same way the "nothing to update"
+    // test below does. This matters here specifically: a freshly created
+    // store's very first addPerson/addReference flush already writes
+    // pipelineVersion: PIPELINE_VERSION (the in-memory default for a store
+    // with no prior file), so building this fixture through store.addPerson
+    // calls would make the file "current" from the moment of creation --
+    // masking the exact distinction (stale vs. current on disk) this test
+    // exists to prove.
+    await fs.mkdir(path.join(dir, 'people'), { recursive: true });
+    const seed = {
+        pipelineVersion: PIPELINE_VERSION - 1,
+        people: [{
+            id: personId, name: 'Sarah', createdAt: new Date().toISOString(),
+            references: [
+                {
+                    id: goodRefId, image: goodRel, thumb: goodRel,
+                    embedding: new Array(512).fill(0), detScore: 0.111, addedAt: new Date().toISOString(),
+                },
+                {
+                    id: missingRefId, image: missingRel, thumb: missingRel,
+                    embedding: new Array(512).fill(0), detScore: 0.222, addedAt: new Date().toISOString(),
+                },
+            ],
+        }],
+    };
+    await fs.writeFile(path.join(dir, 'people.json'), JSON.stringify(seed, null, 2));
+    const store = await createStore(dir);
+
+    const groundTruth = await m.embedLargest(await fs.readFile(SRC));
+    assert.ok(groundTruth, 'sanity: the fixture image must contain a detectable face');
+
+    // First call ("first boot"): one reference re-embeds cleanly, one is
+    // missing and skipped. This is a PARTIAL run.
+    const firstCount = await reembedIfStale(store, m, PIPELINE_VERSION - 1);
+    assert.equal(firstCount, 1, 'exactly the valid reference should have re-embedded');
+
+    let onDisk = JSON.parse(await fs.readFile(path.join(dir, 'people.json'), 'utf8'));
+    const persistedGood = onDisk.people
+        .find((p: { id: string }) => p.id === personId).references
+        .find((r: { id: string }) => r.id === goodRefId);
+    const dot = persistedGood.embedding.reduce(
+        (sum: number, v: number, i: number) => sum + v * groundTruth!.embedding[i], 0);
+    assert.ok(dot > 0.999,
+        'the successfully re-embedded reference must be persisted to disk even though the run as a whole was partial');
+
+    // The assertion this test exists for: a partial run must NOT stamp
+    // pipelineVersion current. Doing so (the pre-fix behavior, inherited
+    // from replaceAll(people) firing whenever updated > 0) would make the
+    // still-stale, still-unfixed reference permanently un-retryable -- the
+    // store would look "current" forever despite one reference silently
+    // keeping a stale embedding.
+    assert.equal(onDisk.pipelineVersion, PIPELINE_VERSION - 1,
+        'a partial run must leave pipelineVersion stale, or the skipped reference would never retry again');
+
+    // Second call ("next boot"): storedVersion is read from disk again --
+    // still stale, because of the assertion just above -- so the whole
+    // store is retried, including the reference that failed last time. This
+    // is the assertion that actually proves the retry guarantee holds, not
+    // just that the version stamp looks right in isolation.
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args); };
+    let secondCount: number;
+    try {
+        secondCount = await reembedIfStale(store, m, onDisk.pipelineVersion);
+    } finally {
+        console.warn = originalWarn;
+    }
+    assert.equal(secondCount, 1, 'the valid reference re-embeds again on retry (redundant, but harmless)');
+
+    const retriedMissingOne = warnings.find(args =>
+        typeof args[0] === 'string' &&
+        args[0].includes(personId) &&
+        args[0].includes(missingRefId));
+    assert.ok(retriedMissingOne,
+        `expected the second call to retry the previously-failed reference ${missingRefId}; got: ${JSON.stringify(warnings)}`);
+
+    onDisk = JSON.parse(await fs.readFile(path.join(dir, 'people.json'), 'utf8'));
+    assert.equal(onDisk.pipelineVersion, PIPELINE_VERSION - 1,
+        'still stale after the second call too, since the missing reference still fails every time');
+});
+
 test('a store with nothing to update does not write, and its stale version stamp survives', async () => {
     const m = await getMatcher();
     const dir = await tmpDir();

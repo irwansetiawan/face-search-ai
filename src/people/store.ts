@@ -41,6 +41,12 @@ export type Store = {
     addReference(personId: string, ref: NewReference): Promise<Person>;
     deletePerson(id: string): Promise<void>;
     deleteReference(personId: string, refId: string): Promise<Person>;
+    /** Corrects one reference's stored file paths in place. Does NOT stamp
+     * pipelineVersion -- see the comment at its implementation. */
+    updateReferencePaths(personId: string, refId: string, image: string, thumb: string): Promise<Person>;
+    /** Corrects one reference's embedding/detScore in place. Does NOT stamp
+     * pipelineVersion -- see the comment at its implementation. */
+    updateReferenceEmbedding(personId: string, refId: string, embedding: number[], detScore: number): Promise<Person>;
     replaceAll(people: Person[]): Promise<void>;
     dataDir: string;
 };
@@ -110,6 +116,13 @@ export async function createStore(dataDir: string): Promise<Store> {
         return person;
     }
 
+    function mustGetReference(personId: string, refId: string): { person: Person; ref: Reference } {
+        const person = mustGet(personId);
+        const ref = person.references.find(r => r.id === refId);
+        if (!ref) throw new Error(`no such reference: ${refId} on person ${personId}`);
+        return { person, ref };
+    }
+
     return {
         dataDir,
         list: () => state.people,
@@ -148,6 +161,36 @@ export async function createStore(dataDir: string): Promise<Store> {
                 throw new Error('cannot delete the last reference of a person; delete the person instead');
             }
             person.references = person.references.filter(r => r.id !== refId);
+            await flush();
+            return person;
+        }),
+
+        // These two exist for callers that need to correct a single
+        // reference's stored fields in place -- a post-hoc file relabel
+        // (routes/people.ts), a re-embed after a pipeline change
+        // (people/reembed.ts) -- WITHOUT the two things replaceAll implies:
+        // (1) replacing the whole `people` array wholesale, which is only
+        // safe when the caller captured it from inside this store's own
+        // serialized queue (replaceAll's callers historically captured it
+        // via `store.list()` from *outside* that queue, which a concurrent
+        // mutation could race and silently undo); and (2) stamping
+        // `pipelineVersion` to current, which both call sites need to NOT
+        // do when the correction is partial (see reembed.ts). Deliberately
+        // narrow to named fields on one reference -- do not widen this into
+        // a generic "persist arbitrary state" method, which would recreate
+        // both hazards under a new name.
+        updateReferencePaths: (personId, refId, image, thumb) => serialize(async () => {
+            const { person, ref } = mustGetReference(personId, refId);
+            ref.image = image;
+            ref.thumb = thumb;
+            await flush();
+            return person;
+        }),
+
+        updateReferenceEmbedding: (personId, refId, embedding, detScore) => serialize(async () => {
+            const { person, ref } = mustGetReference(personId, refId);
+            ref.embedding = embedding;
+            ref.detScore = detScore;
             await flush();
             return person;
         }),

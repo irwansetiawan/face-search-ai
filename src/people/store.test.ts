@@ -148,6 +148,65 @@ test('an existing valid store is still intact on disk after a failed createStore
     assert.equal(afterFailedLoad, '{"people": [ this is not json');
 });
 
+test('updateReferencePaths corrects one reference in place without stamping pipelineVersion', async () => {
+    const dir = await tmpDir();
+    const store = await createStore(dir);
+    const person = await store.addPerson('Sarah', ref(0.1));
+    const refId = person.references[0].id;
+
+    // Seed a stale on-disk version directly, bypassing the store, so we can
+    // tell whether this method touches it.
+    const before = JSON.parse(await fs.readFile(path.join(dir, 'people.json'), 'utf8'));
+    before.pipelineVersion = before.pipelineVersion - 1;
+    await fs.writeFile(path.join(dir, 'people.json'), JSON.stringify(before, null, 2));
+    const reloaded = await createStore(dir);
+
+    const updated = await reloaded.updateReferencePaths(person.id, refId, 'people/x/new.jpg', 'people/x/new.thumb.png');
+    assert.equal(updated.references[0].image, 'people/x/new.jpg');
+    assert.equal(updated.references[0].thumb, 'people/x/new.thumb.png');
+
+    const onDisk = JSON.parse(await fs.readFile(path.join(dir, 'people.json'), 'utf8'));
+    assert.equal(onDisk.people[0].references[0].image, 'people/x/new.jpg');
+    assert.equal(onDisk.pipelineVersion, before.pipelineVersion,
+        'updateReferencePaths must not stamp pipelineVersion current');
+});
+
+test('updateReferenceEmbedding corrects one reference in place without stamping pipelineVersion', async () => {
+    const dir = await tmpDir();
+    const store = await createStore(dir);
+    const person = await store.addPerson('Sarah', ref(0.1));
+    const refId = person.references[0].id;
+
+    const before = JSON.parse(await fs.readFile(path.join(dir, 'people.json'), 'utf8'));
+    before.pipelineVersion = before.pipelineVersion - 1;
+    await fs.writeFile(path.join(dir, 'people.json'), JSON.stringify(before, null, 2));
+    const reloaded = await createStore(dir);
+
+    const newEmbedding = new Array(512).fill(0.9);
+    const updated = await reloaded.updateReferenceEmbedding(person.id, refId, newEmbedding, 0.77);
+    assert.deepEqual(updated.references[0].embedding, newEmbedding);
+    assert.equal(updated.references[0].detScore, 0.77);
+
+    const onDisk = JSON.parse(await fs.readFile(path.join(dir, 'people.json'), 'utf8'));
+    assert.deepEqual(onDisk.people[0].references[0].embedding, newEmbedding);
+    assert.equal(onDisk.pipelineVersion, before.pipelineVersion,
+        'updateReferenceEmbedding must not stamp pipelineVersion current');
+});
+
+test('updateReferencePaths on an unknown reference id rejects, and on an unknown person rejects', async () => {
+    const store = await createStore(await tmpDir());
+    const person = await store.addPerson('Sarah', ref(0.1));
+
+    await assert.rejects(
+        () => store.updateReferencePaths(person.id, 'ref_nope', 'a', 'b'),
+        /no such reference/
+    );
+    await assert.rejects(
+        () => store.updateReferencePaths('p_nope', person.references[0].id, 'a', 'b'),
+        /no such person/
+    );
+});
+
 test('concurrent writes do not lose entries', async () => {
     const dir = await tmpDir();
     const store = await createStore(dir);

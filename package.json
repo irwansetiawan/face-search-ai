@@ -10,7 +10,9 @@
     "build": "npm run build:node && npm run build:browser",
     "build:node": "tsc",
     "build:browser": "webpack && npm run copyfiles",
-    "server": "node dist/server.js"
+    "server": "node dist/server.js",
+    "setup:models": "node scripts/setup-models.mjs",
+    "test": "npm run build:node && node --test dist/"
   },
   "repository": {
     "type": "git",
@@ -29,7 +31,9 @@
     "express": "^4.18.2",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
-    "multer": "^1.4.5-lts.1"
+    "multer": "^1.4.5-lts.1",
+    "onnxruntime-node": "^1.27.0",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@types/async": "^3.2.20",

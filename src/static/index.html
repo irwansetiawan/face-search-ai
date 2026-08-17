@@ -1,84 +1,760 @@
 <!DOCTYPE html>
-<html>
-    <head>
-        <title>Face Search AI - by Irwan Setiawan</title>
-        <style>
-            .image-container img {
-                max-width: 90%;
-                max-height: 500px;
-            }
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Face Search — find one person across many photos</title>
 
-            #progress-container {
-                width: 100%;
-                display: none;
-            }
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=DM+Mono:wght@400;500&family=Fraunces:opsz,wght@9..144,300;9..144,500;9..144,600&display=swap" rel="stylesheet">
 
-            #progress-container #progress-box {
-                height: 25px;
-                border: 1px solid #000000;
-            }
+<style>
+/* ------------------------------------------------------------------
+   Face Search — darkroom contact sheet
+   The ancestor of this tool is a photographer with a loupe over a proof
+   sheet, circling the keeper frame with a chinagraph pencil. Chinagraph
+   red appears ONLY on a match; nothing else in the interface may use it.
+   ------------------------------------------------------------------ */
 
-            #progress-container #progress-box #progress-percent {
-                height: 25px;
-                width: 0%;
-                background-color: #888888;
-            }
-        </style>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
-        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz" crossorigin="anonymous"></script>
-    </head>
-    <body>
-        <form>
-            <div class="container row-gap-3">
-                <div class="row">
-                    <div class="col">
-                        <h2>Select source image</h2>
-                        <div class="mb-2">
-                            <input type="radio" name="sourceType" value="upload" id="sourceTypeUpload" checked>
-                            <label for="sourceTypeUpload">Upload a photo</label>
-                            <input type="radio" name="sourceType" value="person" id="sourceTypePerson">
-                            <label for="sourceTypePerson">Choose a saved person</label>
-                        </div>
-                        <input type="file" name="source" id="source" class="form-control mb-3">
-                        <div id="peoplePicker" style="display:none" class="mb-3"></div>
-                        <div id="saveAsPerson" style="display:none" class="mb-3">
-                            <input type="text" id="newPersonName" class="form-control mb-1" placeholder="Name">
-                            <button type="button" id="savePersonBtn" class="btn btn-sm btn-outline-primary">
-                                Save as person
-                            </button>
-                        </div>
-                        <div class="image-container position-relative text-center"><img id="sourceImg"></div>
-                    </div>
-                    <div class="col">
-                        <h2>Select target image</h2>
-                        <div>
-                            <input type="radio" name="targetType" value="single" id="targetTypeSingle" checked>
-                            <label for="targetTypeSingle">Single image</label>
-                            <input type="radio" name="targetType" value="directory" id="targetTypeDirectory">
-                            <label for="targetTypeDirectory">Multiple images in a directory</label>
-                        </div>
-                        <input type="file" name="target" id="targetSingle" class="form-control mb-3" accept=".jpg, .jpeg, .png">
-                        <input type="file" name="target" id="targetDirectory" class="form-control mb-3" accept=".jpg, .jpeg, .png" webkitdirectory multiple style="display: none;">
-                        <div class="image-container position-relative text-center">
-                            <img id="targetImg">
-                            <div id="progress-container">
-                                <div id="progress-box">
-                                    <div id="progress-percent"></div>
-                                </div>
-                                <div id="progress-number">Scanned 0 out of 0 (0%)</div>
-                                <div id="progress-matched">Matched 0 out of 0 (0%)</div>
-                                <div id="progress-errors" class="text-danger fw-bold" style="display:none"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="row mt-3 text-center">
-                    <div>
-                        <input type="submit" value="Compare Faces" id="submit" class="btn btn-primary btn-lg">
-                    </div>
-                </div>
-            </div>
-        </form>
-        <script src="bundle.js" type="module"></script>
-    </body>
+:root {
+  --paper:      #E7E9E3;
+  --plate:      #F6F7F3;
+  --ink:        #15181B;
+  --slate:      #6E7570;
+  --chinagraph: #C8402C;
+  --selenium:   #35566E;
+
+  --line:       #C9CDC4;
+  --line-soft:  #DBDFD7;
+
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 72px;
+
+  --display: 'Fraunces', Georgia, serif;
+  --ui:      'Archivo', system-ui, sans-serif;
+  --data:    'DM Mono', ui-monospace, monospace;
+
+  --frame: 2px; /* photo-corner radius, not a pill */
+}
+
+* { box-sizing: border-box; }
+
+/* Layout rules below set display on these elements, which would otherwise
+   beat [hidden]'s user-agent display:none and leave them all visible. */
+[hidden] { display: none !important; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  /* Fibre-paper tooth: two offset dot grids, barely visible, no image. */
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(21,24,27,.035) 1px, transparent 0),
+    radial-gradient(circle at 3px 4px, rgba(21,24,27,.022) 1px, transparent 0);
+  background-size: 7px 7px, 11px 11px;
+}
+
+/* ---------------------------------------------------- masthead ---- */
+
+.masthead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-4);
+  padding: var(--sp-5) var(--sp-6) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.wordmark {
+  font-family: var(--display);
+  font-variation-settings: 'opsz' 96, 'SOFT' 0, 'WONK' 1;
+  font-weight: 600;
+  font-size: 25px;
+  letter-spacing: -.02em;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.wordmark em {
+  font-style: normal;
+  color: var(--chinagraph);
+}
+
+.tagline {
+  font-size: 13.5px;
+  color: var(--slate);
+  margin: 0;
+  flex: 1;
+  min-width: 220px;
+}
+
+.threshold {
+  font-family: var(--data);
+  font-size: 11.5px;
+  letter-spacing: .04em;
+  color: var(--slate);
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+  border-radius: var(--frame);
+  padding: 3px var(--sp-2);
+  white-space: nowrap;
+}
+
+.threshold b { color: var(--ink); font-weight: 500; }
+
+/* ------------------------------------------------------ notices ---- */
+
+.notices {
+  position: fixed;
+  right: var(--sp-5);
+  bottom: var(--sp-5);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-width: 340px;
+}
+
+.notice {
+  background: var(--ink);
+  color: var(--plate);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--frame);
+  font-size: 13.5px;
+  box-shadow: 0 8px 24px rgba(21,24,27,.18);
+  animation: rise .22s cubic-bezier(.2,.7,.3,1) both;
+}
+
+.notice--bad { background: var(--chinagraph); }
+
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } }
+
+/* -------------------------------------------------- the bench ----- */
+
+.bench {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 5fr);
+  gap: 1px;
+  background: var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.plate {
+  background: var(--plate);
+  padding: var(--sp-5) var(--sp-6) var(--sp-6);
+  min-width: 0;
+  animation: settle .5s cubic-bezier(.2,.7,.3,1) both;
+}
+
+.plate:nth-child(2) { animation-delay: .06s; }
+
+@keyframes settle { from { opacity: 0; transform: translateY(8px); } }
+
+.plate-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+/* The eyebrow is a role, not a sequence number — these two plates are
+   simultaneous inputs, so numbering them would assert an order that
+   isn't there. */
+.eyebrow {
+  font-family: var(--data);
+  font-size: 11px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--slate);
+  margin: 0;
+}
+
+.plate-title {
+  font-family: var(--display);
+  font-variation-settings: 'opsz' 40, 'WONK' 1;
+  font-weight: 300;
+  font-size: 21px;
+  letter-spacing: -.01em;
+  margin: 0;
+  flex: 1;
+}
+
+/* --------------------------------------------------- dropzone ----- */
+
+.drop {
+  position: relative;
+  border: 1px dashed var(--line);
+  border-radius: var(--frame);
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;   /* hint above filmstrip, never overlapping it */
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-4);
+  text-align: center;
+  padding: var(--sp-6) var(--sp-4);
+  min-height: 210px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+
+.drop:hover { border-color: var(--slate); }
+
+.drop.is-over {
+  border-color: var(--selenium);
+  border-style: solid;
+  background: color-mix(in srgb, var(--selenium) 6%, var(--paper));
+}
+
+.drop:focus-visible {
+  outline: 2px solid var(--selenium);
+  outline-offset: 2px;
+}
+
+.drop.has-image {
+  padding: var(--sp-3);
+  border-style: solid;
+  min-height: 0;
+  display: block;
+  text-align: center;
+}
+
+.drop-hint { color: var(--slate); font-size: 13.5px; margin: 0; }
+.drop-hint b { display: block; color: var(--ink); font-weight: 500; font-size: 15px; margin-bottom: 2px; }
+
+/* inline-block so the figure shrink-wraps the image and the overlay canvas,
+   which is inset to the figure, lands exactly on the photo */
+.drop-figure { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
+.drop-figure img { max-width: 100%; max-height: 330px; width: auto; display: block; border-radius: 1px; }
+.drop-figure canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* A filmstrip of what was chosen — confirms the set without a wall of grey. */
+.strip { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.strip img {
+  width: 54px; height: 54px; object-fit: cover;
+  border-radius: 1px; border: 1px solid var(--line);
+}
+.strip-more {
+  font-family: var(--data);
+  font-size: 11px;
+  color: var(--slate);
+  align-self: center;
+  padding-left: var(--sp-1);
+}
+
+.plate-actions {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: var(--sp-3);
+  min-height: 26px;
+}
+
+.linkish {
+  font-family: var(--ui);
+  font-size: 13px;
+  color: var(--selenium);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.linkish:hover { color: var(--ink); }
+.linkish[disabled] { color: var(--slate); cursor: default; text-decoration: none; }
+.linkish--danger { color: var(--chinagraph); }
+
+.count {
+  font-family: var(--data);
+  font-size: 12px;
+  color: var(--slate);
+  margin-left: auto;
+}
+
+/* -------------------------------------------------- faceprint ----- */
+/* The signature. Drawn from the actual 512-float embedding /probe
+   returns — this is the face as the model sees it, not an ornament. */
+
+.faceprint {
+  display: none;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+.faceprint.is-on { display: flex; }
+.faceprint canvas { width: 86px; height: 86px; flex: none; }
+.faceprint-copy { min-width: 0; }
+
+.faceprint-title {
+  font-family: var(--display);
+  font-variation-settings: 'opsz' 24, 'WONK' 1;
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.faceprint-note {
+  font-family: var(--data);
+  font-size: 11px;
+  color: var(--slate);
+  margin: 2px 0 0;
+  letter-spacing: .02em;
+}
+
+/* ------------------------------------------------------- people ---- */
+
+.people {
+  margin-top: var(--sp-5);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line-soft);
+}
+
+.people-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.people-rail {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.people-empty { font-size: 13px; color: var(--slate); margin: 0; }
+
+.person { width: 68px; text-align: center; }
+
+.person-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: var(--frame);
+  line-height: 0;
+  display: block;
+}
+
+.person-btn img {
+  width: 64px; height: 64px;
+  border-radius: var(--frame);
+  border: 1px solid var(--line);
+  filter: grayscale(.35) contrast(1.04);
+  transition: filter .15s, box-shadow .15s;
+}
+
+.person-btn:hover img { filter: none; }
+.person-btn:focus-visible { outline: 2px solid var(--selenium); outline-offset: 2px; }
+
+.person.is-picked .person-btn img {
+  filter: none;
+  border-color: var(--selenium);
+  box-shadow: 0 0 0 2px var(--selenium);
+}
+
+.person-name {
+  font-size: 12px;
+  margin: var(--sp-2) 0 0;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.person-meta {
+  font-family: var(--data);
+  font-size: 10.5px;
+  color: var(--slate);
+  margin: 1px 0 0;
+}
+
+.person-tools { display: flex; gap: var(--sp-2); justify-content: center; margin-top: 2px; }
+.person-tools .linkish { font-size: 11px; }
+
+.refs {
+  margin-top: var(--sp-2);
+  border: 1px solid var(--line);
+  border-radius: var(--frame);
+  padding: var(--sp-2);
+  background: var(--paper);
+}
+
+.ref-row { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-1); }
+.ref-row:last-child { margin-bottom: 0; }
+.ref-row img { width: 26px; height: 26px; border-radius: 2px; }
+.ref-row .linkish { font-size: 11px; }
+
+/* --------------------------------------------------- the scan ----- */
+
+.scanbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-4) var(--sp-6);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(8px);
+  z-index: 20;
+}
+
+.go {
+  font-family: var(--ui);
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--plate);
+  background: var(--ink);
+  border: 0;
+  border-radius: var(--frame);
+  padding: 11px var(--sp-5);
+  cursor: pointer;
+  transition: background .15s, transform .08s;
+}
+
+.go:hover { background: #000; }
+.go:active { transform: translateY(1px); }
+.go:focus-visible { outline: 2px solid var(--selenium); outline-offset: 3px; }
+.go[disabled] { background: var(--slate); cursor: default; }
+
+/* Tallies read as instrument gauges: mono figures, tiny uppercase labels. */
+.tally { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
+
+.gauge { min-width: 62px; }
+
+.gauge-n {
+  font-family: var(--data);
+  font-weight: 500;
+  font-size: 19px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  display: block;
+}
+
+.gauge-l {
+  font-family: var(--data);
+  font-size: 10px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--slate);
+}
+
+/* Chinagraph means "a match exists". Zero found is not a match, so it
+   stays ink — the colour has to keep meaning something. */
+.gauge--found.is-hot .gauge-n { color: var(--chinagraph); }
+.gauge--failed .gauge-n { color: var(--chinagraph); }
+.gauge--failed { display: none; }
+.gauge--failed.is-on { display: block; }
+
+.meter {
+  flex: 1;
+  min-width: 140px;
+  height: 3px;
+  background: var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--selenium);
+  transition: width .18s linear;
+}
+
+.meter-fill.is-done { background: var(--ink); }
+
+/* ---------------------------------------------- contact sheet ----- */
+
+.sheet-wrap { padding: var(--sp-6); }
+
+.sheet-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.sheet-title {
+  font-family: var(--display);
+  font-variation-settings: 'opsz' 40, 'WONK' 1;
+  font-weight: 300;
+  font-size: 21px;
+  margin: 0;
+}
+
+.sheet {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: var(--sp-4);
+}
+
+.sheet-empty {
+  border: 1px dashed var(--line);
+  border-radius: var(--frame);
+  padding: var(--sp-8) var(--sp-5);
+  text-align: center;
+  color: var(--slate);
+  font-size: 14px;
+}
+
+.frame {
+  position: relative;
+  background: var(--plate);
+  border: 1px solid var(--line);
+  border-radius: var(--frame);
+  padding: var(--sp-2);
+  cursor: pointer;
+  animation: settle .28s cubic-bezier(.2,.7,.3,1) both;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  display: block;
+  width: 100%;
+}
+
+.frame:focus-visible { outline: 2px solid var(--selenium); outline-offset: 2px; }
+
+.frame-shot {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: var(--paper);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.frame-shot img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.frame--miss { opacity: .5; }
+.frame--miss:hover { opacity: .85; }
+.frame--hit { border-color: color-mix(in srgb, var(--chinagraph) 40%, var(--line)); }
+
+.frame-foot {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.frame-name {
+  font-size: 11.5px;
+  color: var(--slate);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.frame-score {
+  font-family: var(--data);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--chinagraph);
+  font-weight: 500;
+}
+
+.frame-score--miss { color: var(--slate); font-weight: 400; }
+
+/* The chinagraph mark: an ellipse drawn around the matched face, stroked
+   on like a pencil circling a proof sheet. */
+.mark { position: absolute; overflow: visible; pointer-events: none; }
+
+.mark ellipse {
+  fill: none;
+  stroke: var(--chinagraph);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: var(--dash);
+  stroke-dashoffset: var(--dash);
+  animation: circle .5s cubic-bezier(.4,.1,.3,1) .06s forwards;
+}
+
+@keyframes circle { to { stroke-dashoffset: 0; } }
+
+/* ------------------------------------------------------ lightbox -- */
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: color-mix(in srgb, var(--ink) 88%, transparent);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-6);
+}
+
+.lightbox.is-on { display: flex; }
+
+.lightbox-inner { max-width: min(1100px, 100%); max-height: 100%; }
+
+.lightbox-figure { position: relative; line-height: 0; }
+.lightbox-figure img { max-width: 100%; max-height: 76vh; display: block; border-radius: var(--frame); }
+.lightbox-figure canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.lightbox-bar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-4);
+  color: var(--paper);
+  margin-top: var(--sp-3);
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.lightbox-bar .linkish { color: var(--paper); margin-left: auto; }
+
+/* --------------------------------------------------- responsive --- */
+
+@media (max-width: 900px) {
+  .bench { grid-template-columns: 1fr; }
+  .masthead, .plate, .scanbar, .sheet-wrap { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+  .sheet { grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+  .mark ellipse { stroke-dashoffset: 0; }
+}
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <h1 class="wordmark">Face<em>·</em>Search</h1>
+  <p class="tagline">Find one person across a pile of photos. Everything runs on this machine — no account, no upload, no cost.</p>
+  <span class="threshold" id="thresholdChip" hidden>match at <b id="thresholdValue">—</b> cosine</span>
+</header>
+
+<form id="bench" class="bench">
+
+  <!-- WHO -->
+  <section class="plate">
+    <div class="plate-head">
+      <h2 class="plate-title">Who are you looking for?</h2>
+      <p class="eyebrow">source</p>
+    </div>
+
+    <div class="drop" id="sourceDrop" tabindex="0" role="button" aria-label="Choose a photo of the person to find">
+      <p class="drop-hint" id="sourceHint"><b>Drop a photo of one person</b>or click to choose</p>
+      <figure class="drop-figure" id="sourceFigure" hidden><img id="sourceImg" alt="The person being searched for"></figure>
+    </div>
+    <input type="file" id="sourceInput" accept="image/*" class="visually-hidden">
+
+    <div class="plate-actions" id="sourceActions">
+      <button type="button" class="linkish" id="clearSourceBtn" hidden>Use a different photo</button>
+    </div>
+
+    <!-- SIGNATURE: drawn from the real 512-float embedding -->
+    <div class="faceprint" id="faceprint">
+      <canvas id="faceprintCanvas" width="124" height="124" aria-hidden="true"></canvas>
+      <div class="faceprint-copy">
+        <p class="faceprint-title">Faceprint</p>
+        <p class="faceprint-note" id="faceprintNote">512 dimensions</p>
+        <button type="button" class="linkish" id="saveToggleBtn">Save this person</button>
+      </div>
+    </div>
+
+    <div id="saveRow" class="plate-actions" hidden>
+      <label class="visually-hidden" for="newPersonName">Name</label>
+      <input type="text" id="newPersonName" placeholder="Name"
+             style="font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:var(--frame);background:var(--paper);flex:1;min-width:120px">
+      <button type="button" class="linkish" id="savePersonBtn">Save</button>
+    </div>
+
+    <div class="people">
+      <div class="people-head">
+        <p class="eyebrow">saved people</p>
+        <span class="count" id="peopleCount"></span>
+      </div>
+      <div class="people-rail" id="peopleRail"></div>
+    </div>
+  </section>
+
+  <!-- WHERE -->
+  <section class="plate">
+    <div class="plate-head">
+      <h2 class="plate-title">Where should I look?</h2>
+      <p class="eyebrow">photos</p>
+    </div>
+
+    <div class="drop" id="targetDrop" tabindex="0" role="button" aria-label="Choose photos to search through">
+      <p class="drop-hint" id="targetHint"><b>Drop photos, or a whole folder</b>JPEG and PNG</p>
+      <div class="strip" id="targetStrip" hidden></div>
+    </div>
+    <input type="file" id="targetFilesInput" accept="image/*" multiple class="visually-hidden">
+    <input type="file" id="targetFolderInput" accept="image/*" webkitdirectory multiple class="visually-hidden">
+
+    <div class="plate-actions">
+      <button type="button" class="linkish" id="pickFilesBtn">Choose photos</button>
+      <button type="button" class="linkish" id="pickFolderBtn">Choose a folder</button>
+      <span class="count" id="targetCount"></span>
+    </div>
+  </section>
+
+  <input type="submit" class="visually-hidden" tabindex="-1" aria-hidden="true">
+</form>
+
+<div class="scanbar">
+  <button type="button" class="go" id="goBtn">Find matches</button>
+  <div class="meter"><div class="meter-fill" id="meterFill"></div></div>
+  <div class="tally">
+    <div class="gauge"><span class="gauge-n" id="gScanned">0</span><span class="gauge-l">scanned</span></div>
+    <div class="gauge gauge--found"><span class="gauge-n" id="gFound">0</span><span class="gauge-l">found</span></div>
+    <div class="gauge gauge--failed" id="gaugeFailed"><span class="gauge-n" id="gFailed">0</span><span class="gauge-l">failed</span></div>
+  </div>
+</div>
+
+<main class="sheet-wrap">
+  <div class="sheet-head">
+    <h2 class="sheet-title">Contact sheet</h2>
+    <span class="count" id="sheetNote"></span>
+    <button type="button" class="linkish" id="saveMatchesBtn" hidden style="margin-left:auto">Save matches as a zip</button>
+  </div>
+  <div class="sheet" id="sheet"></div>
+  <div class="sheet-empty" id="sheetEmpty">Matches appear here as the scan runs. Each frame shows the photo, with the matching face circled.</div>
+</main>
+
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Photo detail">
+  <div class="lightbox-inner">
+    <figure class="lightbox-figure">
+      <img id="lightboxImg" alt="">
+      <canvas id="lightboxCanvas"></canvas>
+    </figure>
+    <div class="lightbox-bar">
+      <span id="lightboxName"></span>
+      <span id="lightboxScore" style="font-family:var(--data)"></span>
+      <button type="button" class="linkish" id="lightboxClose">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="notices" id="notices" aria-live="polite"></div>
+
+<script src="bundle.js" type="module"></script>
+</body>
 </html>

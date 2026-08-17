@@ -24,3 +24,23 @@ npm run server
 ```
 
 Then open http://localhost:3100/ in your browser.
+
+# Saved people
+
+You can save a source photo as a named person instead of re-uploading it every
+session. Saved people can hold more than one reference photo (add more from
+the picker to cover different angles or lighting) — a search matches if the
+target face resembles *any* of a person's reference photos, not just the
+first.
+
+Saved people are stored locally under `data/`:
+
+- `data/people.json` — names and the 512-float face embedding for every
+  reference photo.
+- `data/people/<id>/` — a downscaled copy of each reference photo, plus a
+  small cropped avatar used by the picker.
+
+**`data/` holds personal biometric data (face embeddings and photos) and is
+never uploaded anywhere** — everything in this app runs locally, and `data/`
+is git-ignored. Back it up or delete it like you would any other personal
+file; there's no cloud copy to fall back on.

@@ -6,6 +6,7 @@ import path from 'path';
 import { createStore, PIPELINE_VERSION } from './store.js';
 import { reembedIfStale } from './reembed.js';
 import { createMatcher, type Matcher } from '../face/matcher.js';
+import { storedJpeg } from '../routes/people.js';
 
 const SRC = path.join(process.cwd(), 'spike', 'images', 'obama_portrait.jpg');
 
@@ -23,12 +24,21 @@ async function tmpDir(): Promise<string> {
     return fs.mkdtemp(path.join(os.tmpdir(), 'reembed-'));
 }
 
-/** Places a readable copy of the fixture photo under `dir` and returns its
- * store-relative path. */
+/**
+ * Places a readable copy of the fixture photo under `dir` and returns its
+ * store-relative path. Plants the SAME bytes routes/people.ts actually
+ * stores on disk (storedJpeg's downscaled output), not the raw
+ * full-resolution fixture -- otherwise this test's "ground truth" (a direct
+ * embed of SRC) could never catch a mismatch between what gets stored and
+ * what gets embedded, since in production those would never be the same
+ * bytes as the raw fixture either. See routes/people.ts's storedJpeg doc
+ * comment for the bug this closes.
+ */
 async function plantImage(dir: string): Promise<string> {
     const rel = path.join('people', 'tmp', 'ref-1.jpg');
     await fs.mkdir(path.join(dir, 'people', 'tmp'), { recursive: true });
-    await fs.copyFile(SRC, path.join(dir, rel));
+    const stored = await storedJpeg(await fs.readFile(SRC));
+    await fs.writeFile(path.join(dir, rel), stored);
     return rel;
 }
 
@@ -49,13 +59,15 @@ test('stale stored embeddings are recomputed from the stored image and persisted
     const fixedRef = store.get(person.id)!.references[0];
     const fixed = fixedRef.embedding;
 
-    // Ground truth: embed the same source image directly and compare. This
-    // is the assertion that would fail if the re-embed produced *some*
+    // Ground truth: embed the exact planted (stored) bytes directly and
+    // compare -- not SRC, since plantImage stores storedJpeg's downscaled
+    // output, and that's what a real reembedIfStale run reads from disk too.
+    // This is the assertion that would fail if the re-embed produced *some*
     // normalized-looking vector that wasn't actually derived correctly from
     // the stored image (e.g. wrong file, wrong crop, a bug in the
     // Float32Array -> number[] conversion) — a norm check alone would not
     // catch any of that.
-    const groundTruth = await m.embedLargest(await fs.readFile(SRC));
+    const groundTruth = await m.embedLargest(await fs.readFile(path.join(dir, rel)));
     assert.ok(groundTruth, 'sanity: the fixture image must contain a detectable face');
     const dot = fixed.reduce((sum, v, i) => sum + v * groundTruth!.embedding[i], 0);
     assert.ok(dot > 0.999, `expected the re-embedded vector to match a direct embed of the same image, cosine similarity was ${dot}`);
@@ -165,7 +177,7 @@ test('a partial failure persists the successful re-embeds but leaves pipelineVer
     await fs.writeFile(path.join(dir, 'people.json'), JSON.stringify(seed, null, 2));
     const store = await createStore(dir);
 
-    const groundTruth = await m.embedLargest(await fs.readFile(SRC));
+    const groundTruth = await m.embedLargest(await fs.readFile(path.join(dir, goodRel)));
     assert.ok(groundTruth, 'sanity: the fixture image must contain a detectable face');
 
     // First call ("first boot"): one reference re-embeds cleanly, one is

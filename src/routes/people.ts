@@ -20,6 +20,35 @@ import type { Matcher, EmbeddedFace } from '../face/matcher.js';
 // a re-embed could never make use of.
 const MAX_STORED_EDGE = 1600;
 
+/**
+ * Downscales an uploaded photo to the bytes that will actually be stored on
+ * disk as the reference's "original". Exported so every caller -- the
+ * embed, the avatar crop, and writeArtifacts' own disk write -- shares this
+ * exact transform and therefore the exact same output bytes for the same
+ * input.
+ *
+ * This is the fix for a re-embed drift bug: the embedding used to be
+ * computed from the full-resolution upload while `writeArtifacts` separately
+ * derived a *different* downscaled JPEG for storage. `reembedIfStale` (Task
+ * 9) re-derives embeddings from the stored file, not the original upload --
+ * so embedding from one set of bytes while storing another meant every
+ * future re-embed silently perturbed the vector by an unmeasured amount, on
+ * top of whatever pipeline change it was correcting for. Embedding from
+ * `storedJpeg`'s own output closes that gap: the stored original always
+ * reproduces the stored embedding.
+ *
+ * A throw from here (bytes sharp cannot decode at all) is the client's
+ * fault, same as a throw from `matcher.embedLargest` -- both routes below
+ * map it to 400 `unreadable_image`.
+ */
+export async function storedJpeg(buffer: Buffer): Promise<Buffer> {
+    return sharp(buffer)
+        .rotate() // bake in EXIF orientation before storing
+        .resize(MAX_STORED_EDGE, MAX_STORED_EDGE, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 88 })
+        .toBuffer();
+}
+
 /** Public shape for the people list/picker: never ship the 512-float
  * embedding to the browser -- it serves no purpose there and would bloat
  * every response for no benefit. */
@@ -39,13 +68,19 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
     const upload = multer({ dest: 'uploads/' });
 
     /**
-     * Writes both stored artefacts (downscaled original + aligned avatar
-     * crop, cropped from `face.faceIndex` -- NOT a hardcoded 0, since
-     * embedLargest ranks by clamped box area and is not necessarily the
-     * first face detected; passing 0 would crop whichever face happened to
-     * be detected first, a different face from the one the embedding
-     * actually came from on any multi-face photo where the largest face
-     * isn't first) under `people/<dirId>/`.
+     * Writes both stored artefacts (the already-downscaled original produced
+     * by `storedJpeg` + an aligned avatar crop, cropped from `face.faceIndex`
+     * -- NOT a hardcoded 0, since embedLargest ranks by clamped box area and
+     * is not necessarily the first face detected; passing 0 would crop
+     * whichever face happened to be detected first, a different face from
+     * the one the embedding actually came from on any multi-face photo where
+     * the largest face isn't first) under `people/<dirId>/`.
+     *
+     * `buffer` here MUST be the same bytes `face` was embedded from (i.e.
+     * `storedJpeg`'s output, not the original full-resolution upload) --
+     * see `storedJpeg`'s doc comment for why. This function writes `buffer`
+     * to disk verbatim (no re-encoding) so the stored original is exactly
+     * what was embedded, byte for byte.
      *
      * Both files are written to their FINAL resting path before this
      * function returns, and only once it returns does a caller ever call
@@ -67,11 +102,10 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
         const imageRel = path.join('people', dirId, `${stamp}.jpg`);
         const thumbRel = path.join('people', dirId, `${stamp}.thumb.png`);
         try {
-            await sharp(buffer)
-                .rotate() // bake in EXIF orientation before storing
-                .resize(MAX_STORED_EDGE, MAX_STORED_EDGE, { fit: 'inside', withoutEnlargement: true })
-                .jpeg({ quality: 88 })
-                .toFile(path.join(store.dataDir, imageRel));
+            // Written verbatim -- buffer is already storedJpeg's output.
+            // Re-encoding it here a second time would reintroduce the exact
+            // bug this function's doc comment describes, one layer deeper.
+            await fs.writeFile(path.join(store.dataDir, imageRel), buffer);
 
             await fs.writeFile(
                 path.join(store.dataDir, thumbRel),
@@ -123,15 +157,21 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
             }
 
             if (buffer) {
-                // Only this decode step -- matcher.embedLargest's first
-                // move is to decode `buffer` as an image (via sharp) -- maps
-                // a throw to 400 unreadable_image. Everything after it
-                // (writing files, talking to the store) is a server-side
-                // fault if it throws, not the client's, and must fall
-                // through to the 500 default instead.
+                // Only this decode step -- storedJpeg's first move (and
+                // matcher.embedLargest's, downstream of it) is to decode
+                // `buffer` as an image (via sharp) -- maps a throw to 400
+                // unreadable_image. `stored` (not the original `buffer`) is
+                // what gets embedded AND what writeArtifacts later persists,
+                // so the stored original always reproduces the stored
+                // embedding -- see storedJpeg's doc comment. Everything
+                // after this block (writing files, talking to the store) is
+                // a server-side fault if it throws, not the client's, and
+                // must fall through to the 500 default instead.
+                let stored: Buffer | undefined;
                 let face: EmbeddedFace | null | undefined;
                 try {
-                    face = await matcher.embedLargest(buffer);
+                    stored = await storedJpeg(buffer);
+                    face = await matcher.embedLargest(stored);
                 } catch (err) {
                     console.error('people: failed to decode uploaded photo', err);
                     status = 400;
@@ -141,7 +181,7 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
                 if (face === null) {
                     status = 422;
                     body = { error: 'no_face_detected' };
-                } else if (face) {
+                } else if (face && stored) {
                     // The real person id only exists once store.addPerson
                     // returns, so writeArtifacts first writes under a
                     // disposable, locally-generated directory name.
@@ -167,7 +207,7 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
                     // nothing persisted references yet.
                     let registered = false;
                     try {
-                        const ref = await writeArtifacts(pendingId, buffer, face);
+                        const ref = await writeArtifacts(pendingId, stored, face);
                         const person = await store.addPerson(name, ref);
                         registered = true;
                         const first = person.references[0];
@@ -274,9 +314,11 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
                 }
 
                 if (buffer) {
+                    let stored: Buffer | undefined;
                     let face: EmbeddedFace | null | undefined;
                     try {
-                        face = await matcher.embedLargest(buffer);
+                        stored = await storedJpeg(buffer);
+                        face = await matcher.embedLargest(stored);
                     } catch (err) {
                         console.error('people: failed to decode uploaded photo', err);
                         status = 400;
@@ -286,13 +328,13 @@ export function peopleRouter(store: Store, matcher: Matcher): express.Router {
                     if (face === null) {
                         status = 422;
                         body = { error: 'no_face_detected' };
-                    } else if (face) {
+                    } else if (face && stored) {
                         try {
                             // The person already exists, so its final
                             // directory name is already known -- no
                             // pending/copy dance needed here, unlike person
                             // creation.
-                            const ref = await writeArtifacts(req.params.id, buffer, face);
+                            const ref = await writeArtifacts(req.params.id, stored, face);
                             const person = await store.addReference(req.params.id, ref);
                             status = 200;
                             body = publicPerson(person);

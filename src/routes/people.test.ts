@@ -7,6 +7,7 @@ import path from 'path';
 import { createMatcher, type Matcher } from '../face/matcher.js';
 import { createStore, type Store } from '../people/store.js';
 import { createApp } from '../app.js';
+import { storedJpeg } from './people.js';
 
 const IMAGES = path.join(process.cwd(), 'spike', 'images');
 
@@ -264,8 +265,9 @@ test('deleting the last reference of a person is refused, not silently emptying 
         const refId = person.references[0].id;
 
         const res = await fetch(`${base}/people/${person.id}/references/${refId}`, { method: 'DELETE' });
-        assert.ok(res.status >= 400 && res.status < 500,
-            `expected a client-error status refusing the deletion, got ${res.status}`);
+        assert.equal(res.status, 409,
+            `expected 409 (cannot delete the last reference), got ${res.status}`);
+        assert.equal((await res.json()).error, 'cannot_delete_last_reference');
 
         const stillThere = await (await fetch(`${base}/people`)).json();
         assert.equal(stillThere.length, 1);
@@ -293,7 +295,13 @@ test('deleting a non-last reference succeeds and leaves the other one intact', a
 test('the saved avatar is cropped from the same face that was embedded, on a multi-face photo where the largest face is not the first detected', async () => {
     await withServer(async (base) => {
         const m = await getMatcher();
-        const buffer = fs.readFileSync(path.join(IMAGES, 'g8_group.jpg'));
+        const original = fs.readFileSync(path.join(IMAGES, 'g8_group.jpg'));
+        // The route embeds and crops from storedJpeg's output, not the
+        // full-resolution upload (Task 12 review fix 3) -- detection order
+        // can differ between the two, so ground truth here must be derived
+        // from the exact same downscaled bytes the route actually stores,
+        // not from `original`.
+        const buffer = await storedJpeg(original);
         const { faces } = await m.embedAll(buffer);
         const largest = faces.reduce((a, b) =>
             a.box.width * a.box.height >= b.box.width * b.box.height ? a : b);
@@ -318,5 +326,36 @@ test('the saved avatar is cropped from the same face that was embedded, on a mul
             'avatar must be cropped from the same face index the embedding came from (face.faceIndex)');
         assert.notDeepEqual(actualThumb, wrongThumb,
             'a hardcoded index 0 would produce a different crop than the one actually embedded');
+    });
+});
+
+test('the stored original reproduces the stored embedding (re-embedding from disk matches what was persisted)', async () => {
+    await withServer(async (base, store) => {
+        const { body: person } = await createPerson(base, 'obama_portrait.jpg', 'Barack');
+        // publicPerson() never ships `image` to the browser -- read it from
+        // the store directly, the same way reembedIfStale does.
+        const ref = store.get(person.id)!.references[0];
+
+        // Re-derive an embedding straight from the file on disk, the same
+        // way reembedIfStale does, and compare it to a ground truth derived
+        // via the exact same storedJpeg transform the route used. If the
+        // route ever again embeds from different bytes than it stores, this
+        // cosine drops measurably below 1 -- proving the fix in
+        // routes/people.ts (storedJpeg computed once, embedded from, and
+        // written verbatim) actually holds.
+        const m = await getMatcher();
+        const onDisk = await fsp.readFile(path.join(store.dataDir, ref.image));
+        const reEmbedded = await m.embedLargest(onDisk);
+        assert.ok(reEmbedded, 'the stored original must still contain a detectable face');
+
+        const original = fs.readFileSync(path.join(IMAGES, 'obama_portrait.jpg'));
+        const expectedBytes = await storedJpeg(original);
+        const expected = await m.embedLargest(expectedBytes);
+        assert.ok(expected);
+
+        const dot = reEmbedded!.embedding.reduce(
+            (sum, v, i) => sum + v * expected!.embedding[i], 0);
+        assert.ok(dot > 0.999,
+            `expected the stored file to reproduce the stored embedding, cosine similarity was ${dot}`);
     });
 });

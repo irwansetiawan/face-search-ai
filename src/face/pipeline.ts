@@ -17,7 +17,11 @@
  */
 import sharp from 'sharp';
 
-const DET_SIZE = 640;
+// The SCRFD detector's fixed input resolution. decodeDetections' anchor-grid
+// math assumes the caller letterboxed to exactly this size — export it so
+// callers use the constant `decodeDetections` actually assumes, rather than
+// duplicating the literal 640.
+export const DET_SIZE = 640;
 const DET_THRESH = 0.5;
 const NMS_THRESH = 0.4;
 const STRIDES = [8, 16, 32];
@@ -253,9 +257,20 @@ export function umeyama(src: number[][], dst: number[][]): number[][] {
   ];
 }
 
-/** Warp a face into a 112x112 ArcFace crop, bilinearly sampling the source. */
+/**
+ * Warp a face into a `size`x`size` ArcFace crop, bilinearly sampling the source.
+ *
+ * ARCFACE_DST is defined for a 112x112 crop; for any other size the reference
+ * points must be scaled by `size / 112` first — this mirrors insightface's
+ * face_align.estimate_norm, which computes `ratio = image_size / 112.0` and
+ * uses `ratio * arcface_src` as the alignment target. At size=112 the ratio
+ * is exactly 1, so this is a no-op and the arithmetic is bit-identical to
+ * using ARCFACE_DST directly.
+ */
 export function alignCrop(img: RawImage, kps: number[][], size = 112): Float32Array {
-  const M = umeyama(kps, ARCFACE_DST);
+  const ratio = size / 112;
+  const dst = ratio === 1 ? ARCFACE_DST : ARCFACE_DST.map(([x, y]) => [x * ratio, y * ratio]);
+  const M = umeyama(kps, dst);
 
   // Invert the 2x3 affine so we can sample source pixels per destination pixel.
   const det = M[0][0] * M[1][1] - M[0][1] * M[1][0];

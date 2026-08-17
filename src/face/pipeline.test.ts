@@ -100,23 +100,39 @@ test('letterbox pads a portrait image on the right with the uint8-zero fill valu
     }
 });
 
-test('letterbox truncates target dimensions rather than rounding, for both orientations', () => {
-    // Portrait: width=100, height=137 -> imRatio=1.37 -> nh=50, nw=trunc(50/1.37)=36.
-    const portrait = solidImage(100, 137, 100);
-    const { scale: pScale } = letterbox(portrait, 50);
-    assert.equal(pScale, 50 / 137);
+test('letterbox (landscape) truncates nh and derives scale from nh/height, not round() or a min-ratio', () => {
+    // width=200, height=103 -> imRatio=0.515 -> nw=size=50, nh=trunc(50*0.515)=trunc(25.75)=25.
+    // round(25.75) would give 26 instead, and a min-ratio formula would give scale=size/width=0.25
+    // instead of the correct nh/height=25/103=0.24272 — both wrong answers are checked against here.
+    const img = solidImage(200, 103, 100);
+    const size = 50;
+    const { input, scale } = letterbox(img, size);
 
-    // Landscape: width=200, height=100 -> imRatio=0.5 -> nw=40, nh=trunc(40*0.5)=20.
-    const landscape = solidImage(200, 100, 100);
-    const size = 40;
-    const { input, scale: lScale } = letterbox(landscape, size);
-    assert.equal(lScale, 20 / 100);
-    const nh = Math.trunc(size * 0.5); // = 20
+    const nh = 25; // trunc(25.75), not round(25.75) = 26
+    assert.ok(Math.abs(scale - nh / 103) < 1e-9, `scale was ${scale}, expected nh/height = ${nh / 103}`);
+    assert.ok(Math.abs(scale - size / 200) > 1e-3, 'scale must not equal the min-ratio size/width (0.25)');
+
     const contentVal = (100 - 127.5) / 128.0;
     const fillVal = -127.5 / 128.0;
-    // Row just inside content vs. row just inside the bottom padding.
+    // Row just inside content (y=nh-1) vs. row just inside the bottom padding (y=nh), both at x=0.
     assert.ok(Math.abs(input[(nh - 1) * size] - contentVal) < 1e-6);
     assert.ok(Math.abs(input[nh * size] - fillVal) < 1e-6);
+});
+
+test('letterbox (portrait) truncates nw rather than rounding it', () => {
+    // width=100, height=117 -> imRatio=1.17 -> nh=size=50, nw=trunc(50/1.17)=trunc(42.735)=42.
+    // round(42.735) would give 43 instead — observable at the content/padding boundary.
+    const img = solidImage(100, 117, 100);
+    const size = 50;
+    const { input, scale } = letterbox(img, size);
+    assert.equal(scale, size / 117); // nh === size identically in the portrait branch
+
+    const nw = 42; // trunc(42.735), not round(42.735) = 43
+    const contentVal = (100 - 127.5) / 128.0;
+    const fillVal = -127.5 / 128.0;
+    // Column just inside content (x=nw-1) vs. column just inside the right padding (x=nw), row 0.
+    assert.ok(Math.abs(input[nw - 1] - contentVal) < 1e-6);
+    assert.ok(Math.abs(input[nw] - fillVal) < 1e-6);
 });
 
 // ---------------------------------------------------------------- decodeDetections
@@ -221,5 +237,33 @@ test('alignCrop marks out-of-bounds samples as -1 rather than reading past the s
     for (let c = 0; c < 3; c++) {
         const expected = (img.data[pInterior + c] - 127.5) / 127.5;
         assert.ok(Math.abs(out[c * plane + dInterior] - expected) < 1e-4);
+    }
+});
+
+test('alignCrop scales ARCFACE_DST by size/112 for non-default sizes (matches insightface estimate_norm)', () => {
+    // Scale the *source* landmarks by the same ratio the implementation must apply to
+    // the destination reference points. If alignCrop correctly scales ARCFACE_DST by
+    // size/112 before calling umeyama, src == dst again and the transform is identity
+    // at this larger size too -- exactly as it is at size=112 in the test above.
+    // Before the fix, alignCrop always aligned against the unscaled (112x112) ARCFACE_DST,
+    // so this scaled-kps input would have produced a real (wrong) affine warp instead.
+    const size = 224;
+    const ratio = size / 112;
+    const scaledKps = ARCFACE_DST.map(([x, y]) => [x * ratio, y * ratio]);
+
+    const img = patternImage(230, 230);
+    const out = alignCrop(img, scaledKps, size);
+    const plane = size * size;
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const d = y * size + x;
+            const p = (y * img.width + x) * 3;
+            for (let c = 0; c < 3; c++) {
+                const expected = (img.data[p + c] - 127.5) / 127.5;
+                const actual = out[c * plane + d];
+                assert.ok(Math.abs(actual - expected) < 1e-4,
+                    `(${x},${y}) c=${c} was ${actual}, expected ${expected}`);
+            }
+        }
     }
 });

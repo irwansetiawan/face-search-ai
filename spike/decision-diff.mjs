@@ -60,4 +60,13 @@ console.log(
 // The spec makes this a binding "done when" criterion, not just a printed
 // number a human is trusted to read -- so it must be checkable in CI/scripts
 // too. A disagreement at or above 0.02 exits non-zero instead of always 0.
+//
+// This gate is left at 0.02 deliberately (unlike compare-oracle.mjs's
+// AGREEMENT_GATE, which moved to 0.98) -- it currently passes with headroom
+// to spare (0.0183), and that headroom is thin for the same reason
+// compare-oracle.mjs's floor is: the largest disagreement on any pair is
+// biden_portrait / obama_rot_notag, the deliberate EXIF-stripped
+// sideways-face control fixture (see compare-oracle.mjs's header comment).
+// Widening a gate that already passes has no justification; narrowing it
+// would risk flagging that same known-harder fixture as a false positive.
 if (worstDelta >= 0.02) process.exit(1);

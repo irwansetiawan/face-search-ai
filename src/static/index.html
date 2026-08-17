@@ -33,7 +33,20 @@
                 <div class="row">
                     <div class="col">
                         <h2>Select source image</h2>
+                        <div class="mb-2">
+                            <input type="radio" name="sourceType" value="upload" id="sourceTypeUpload" checked>
+                            <label for="sourceTypeUpload">Upload a photo</label>
+                            <input type="radio" name="sourceType" value="person" id="sourceTypePerson">
+                            <label for="sourceTypePerson">Choose a saved person</label>
+                        </div>
                         <input type="file" name="source" id="source" class="form-control mb-3">
+                        <div id="peoplePicker" style="display:none" class="mb-3"></div>
+                        <div id="saveAsPerson" style="display:none" class="mb-3">
+                            <input type="text" id="newPersonName" class="form-control mb-1" placeholder="Name">
+                            <button type="button" id="savePersonBtn" class="btn btn-sm btn-outline-primary">
+                                Save as person
+                            </button>
+                        </div>
                         <div class="image-container position-relative text-center"><img id="sourceImg"></div>
                     </div>
                     <div class="col">

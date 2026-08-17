@@ -12,7 +12,7 @@
     "build:browser": "webpack && npm run copyfiles",
     "server": "node dist/server.js",
     "setup:models": "node scripts/setup-models.mjs",
-    "test": "npm run build:node && node --test dist/"
+    "test": "npm run build:node && node --test --test-concurrency=1 dist/"
   },
   "repository": {
     "type": "git",

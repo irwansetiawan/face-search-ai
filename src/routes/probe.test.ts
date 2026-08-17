@@ -6,6 +6,7 @@ import { createMatcher, type Matcher } from '../face/matcher.js';
 import { createApp } from '../app.js';
 
 const IMAGES = path.join(process.cwd(), 'spike', 'images');
+const UPLOADS = path.join(process.cwd(), 'uploads');
 
 // Ruling 14: share one matcher per test file. createMatcher() compiles the
 // ONNX graphs (~5s), so creating it per-test would make the suite
@@ -59,5 +60,28 @@ test('POST /probe returns 422 when there is no face', async () => {
         const res = await fetch(`${base}/probe`, { method: 'POST', body: fd });
         assert.equal(res.status, 422);
         assert.equal((await res.json()).error, 'no_face_detected');
+    });
+});
+
+test('POST /probe returns 400 and deletes the multer temp file when the upload is unreadable', async () => {
+    await withServer(async (base) => {
+        const before = new Set(fs.readdirSync(UPLOADS));
+
+        const fd = new FormData();
+        fd.append('source', new Blob([Buffer.from('this is not an image')]), 'junk.jpg');
+        const res = await fetch(`${base}/probe`, { method: 'POST', body: fd });
+
+        assert.equal(res.status, 400);
+        assert.equal((await res.json()).error, 'unreadable_image');
+        assert.deepEqual(new Set(fs.readdirSync(UPLOADS)), before,
+            'multer temp file must be unlinked on the error path, not just on success');
+    });
+});
+
+test('POST /probe returns 400 when no source field is present', async () => {
+    await withServer(async (base) => {
+        const res = await fetch(`${base}/probe`, { method: 'POST', body: new FormData() });
+        assert.equal(res.status, 400);
+        assert.equal((await res.json()).error, 'bad_probe');
     });
 });

@@ -80,24 +80,52 @@ test('stale stored embeddings are recomputed from the stored image and persisted
         'must stamp the current version, or every boot would re-embed again');
 });
 
-test('a reference whose image file is missing keeps its stale vector instead of being dropped', async () => {
+test('a reference whose image file is missing keeps its stale vector instead of being dropped, and the skip is logged', async () => {
     const m = await getMatcher();
     const dir = await tmpDir();
     const store = await createStore(dir);
 
     const staleEmbedding = new Array(512).fill(0);
+    const relImage = path.join('people', 'nope', 'missing.jpg');
     const person = await store.addPerson('Ghost', {
-        image: path.join('people', 'nope', 'missing.jpg'), thumb: 'missing.jpg',
+        image: relImage, thumb: 'missing.jpg',
         embedding: staleEmbedding, detScore: 0.5,
     });
 
-    const count = await reembedIfStale(store, m, PIPELINE_VERSION - 1);
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => { warnings.push(args); };
+    let count: number;
+    try {
+        count = await reembedIfStale(store, m, PIPELINE_VERSION - 1);
+    } finally {
+        console.warn = originalWarn;
+    }
     assert.equal(count, 0, 'a missing file should not count as re-embedded');
 
     const stillThere = store.get(person.id);
     assert.ok(stillThere, 'the person must not be dropped when its image is unreadable');
     assert.deepEqual(stillThere!.references[0].embedding, staleEmbedding);
     assert.equal(stillThere!.references[0].detScore, 0.5);
+
+    // The skip must be visible in boot output: a per-reference warning
+    // naming the person id, reference id, and the failing image path, plus
+    // a summary line. Silence here is exactly the failure mode this
+    // recovery mechanism must not have — a stale reference could otherwise
+    // be skipped forever, on every future boot, with no signal anywhere.
+    const refId = stillThere!.references[0].id;
+    const perReference = warnings.find(args =>
+        typeof args[0] === 'string' &&
+        args[0].includes(person.id) &&
+        args[0].includes(refId) &&
+        args[0].includes(relImage)
+    );
+    assert.ok(perReference, `expected a warning naming person ${person.id}, reference ${refId}, and path ${relImage}; got: ${JSON.stringify(warnings)}`);
+
+    const summary = warnings.find(args =>
+        typeof args[0] === 'string' && /\b1\b.*skipped|skipped.*\b1\b/.test(args[0])
+    );
+    assert.ok(summary, `expected a summary line mentioning 1 skipped reference; got: ${JSON.stringify(warnings)}`);
 });
 
 test('a store with nothing to update does not write, and its stale version stamp survives', async () => {

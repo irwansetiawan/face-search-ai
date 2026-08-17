@@ -108,8 +108,11 @@ form.addEventListener('submit', async (event) => {
     }
 
     if (!isDirectory()) { // single file
-        await sendRequest(probe, targetFiles[0]);
-        sendingRequest = false;
+        try {
+            await sendRequest(probe, targetFiles[0]);
+        } finally {
+            sendingRequest = false;
+        }
     }
     else { // multiple files
         resetCounters(targetFiles.length);
@@ -153,12 +156,21 @@ function sendRequest(probe: number[], targetFile: File): Promise<void> {
     onRequestSent();
     sendingRequest = true;
     return (async () => {
-        const body = new FormData();
-        body.append('target', targetFile);
-        body.append('probe', JSON.stringify([probe]));
-        const res = await fetch('/search', { method: 'POST', body });
-        onResponseReceived();
-        await handleResponse(res, targetFile);
+        try {
+            const body = new FormData();
+            body.append('target', targetFile);
+            body.append('probe', JSON.stringify([probe]));
+            const res = await fetch('/search', { method: 'POST', body });
+            await handleResponse(res, targetFile);
+        } catch (error) {
+            // A network failure (or an unparseable response) for one photo
+            // must not abort a directory scan or leave sendingRequest stuck
+            // for a single-image run -- it's counted and skipped, same as
+            // a non-2xx response from handleResponse.
+            console.warn(targetFile.name, 'search request failed', error);
+        } finally {
+            onResponseReceived();
+        }
     })();
 }
 

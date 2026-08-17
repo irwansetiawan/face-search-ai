@@ -62,9 +62,15 @@ function toSpikeFace(f, imageWidth, imageHeight) {
 
 /**
  * `providers` is accepted for source compatibility with the pre-port spike
- * (compare-oracle.mjs's `--cpu` flag) but ignored: `src/face/matcher.ts`
- * fixes execution providers to `['coreml', 'cpu']` and takes no arguments —
- * see Task 3's controller rulings for why that isn't adapted the other way.
+ * (which used to take a `--cpu` flag on compare-oracle.mjs to isolate
+ * CoreML fp16 precision from a genuine port defect) but ignored:
+ * `src/face/matcher.ts` fixes execution providers to `['coreml', 'cpu']`
+ * and takes no arguments — see Task 3's controller rulings for why that
+ * isn't adapted the other way. The `--cpu` flag itself was removed (Task
+ * 12 review fix 4): it was printing a providers header that didn't reflect
+ * what actually ran, since this function ignores `providers` regardless of
+ * what's passed. If CoreML-vs-CPU isolation is needed again, this is where
+ * `providers` would need to start being forwarded to `createRealMatcher`.
  */
 export async function createMatcher(_opts) {
   const real = await createRealMatcher();

@@ -56,3 +56,8 @@ console.log(
     ? 'VERDICT: decisions are equivalent — no threshold in a sane range would flip.'
     : 'VERDICT: pairwise scores diverge enough to change verdicts. Investigate.'
 );
+
+// The spec makes this a binding "done when" criterion, not just a printed
+// number a human is trusted to read -- so it must be checkable in CI/scripts
+// too. A disagreement at or above 0.02 exits non-zero instead of always 0.
+if (worstDelta >= 0.02) process.exit(1);

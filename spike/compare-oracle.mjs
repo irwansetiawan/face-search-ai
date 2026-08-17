@@ -17,13 +17,18 @@ if (!oraclePath) {
   process.exit(2);
 }
 
-// The oracle runs CPU fp32. Pass --cpu to take CoreML (fp16 on the ANE) out of the
-// comparison, isolating precision differences from genuine port defects.
-const providers = process.argv.includes('--cpu') ? ['cpu'] : ['coreml', 'cpu'];
-
+// insightface.mjs's createMatcher ignores any providers option -- the real
+// src/face/matcher.ts hardcodes ['coreml', 'cpu'] and takes no arguments, by
+// design (Task 3's controller ruling). A `--cpu` flag here used to be
+// accepted and printed as if it changed which execution provider ran, which
+// it never did -- reporting a configuration this script was not actually
+// running. There is currently no way to isolate CoreML fp16 precision from
+// a genuine port defect via this script; if that's needed, extend
+// createMatcher to actually forward providers rather than resurrecting a
+// flag that lies about what ran.
 const oracle = JSON.parse(await readFile(oraclePath, 'utf8'));
-const matcher = await createMatcher({ providers });
-console.log(`ts providers: ${JSON.stringify(providers)}   oracle: CPU fp32\n`);
+const matcher = await createMatcher();
+console.log('oracle: CPU fp32\n');
 
 console.log('file                      faces(ts/py)   bbox drift px   cosine(ts,py)');
 console.log('-'.repeat(76));
@@ -57,3 +62,8 @@ console.log(
   : worst >= 0.99 ? 'VERDICT: close, but there is a small systematic difference worth finding.'
   : 'VERDICT: the port has a real defect — do not trust these embeddings.'
 );
+
+// The spec makes this a binding "done when" criterion, not just a printed
+// number a human is trusted to read -- so it must be checkable in CI/scripts
+// too. A verdict below 0.99 exits non-zero instead of always exiting 0.
+if (worst < 0.99) process.exit(1);
